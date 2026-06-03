@@ -1,10 +1,14 @@
-# telesrv
+# gramsrv (telesrv)
 
-`telesrv` 是一个用 Go 编写的 Telegram-like MTProto server。它以
+`gramsrv` 是 `telesrv` 的公开仓库名。`telesrv` 是一个用 Go 编写的
+Telegram-like MTProto server，以
 [`github.com/gotd/td`](https://github.com/gotd/td) v0.144.0 / Layer 225 作为
 TL 与 MTProto 基础，第一兼容目标是固定基线的 Telegram Desktop。
 
 `telesrv` 是独立的非官方项目，与 Telegram 官方及其团队没有关联，也未获得其背书或赞助。
+
+关键词：`MTProto`、`Telegram Desktop`、`gotd/td`、`Telegram-like server`、`Go`、
+`self-hosted chat server`。
 
 [English README](README.md)
 

@@ -1,12 +1,15 @@
-# telesrv
+# gramsrv (telesrv)
 
-`telesrv` is a Telegram-like MTProto server written in Go. It uses
-[`github.com/gotd/td`](https://github.com/gotd/td) v0.144.0 / Layer 225 as the TL
-and MTProto base, and its first compatibility target is a pinned Telegram
-Desktop build.
+`gramsrv` is the public repository for `telesrv`, a Telegram-like MTProto server
+written in Go. It uses [`github.com/gotd/td`](https://github.com/gotd/td)
+v0.144.0 / Layer 225 as the TL and MTProto base, and its first compatibility
+target is a pinned Telegram Desktop build.
 
 `telesrv` is an independent, unofficial project. It is not affiliated with,
 endorsed by, or sponsored by Telegram or the official Telegram team.
+
+Keywords: `MTProto`, `Telegram Desktop`, `gotd/td`, `Telegram-like server`, `Go`,
+`self-hosted chat server`.
 
 [中文 README](README.zh-CN.md)
 
