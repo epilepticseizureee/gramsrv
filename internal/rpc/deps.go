@@ -101,6 +101,14 @@ type AccountService interface {
 	GetPassword(ctx context.Context, userID int64) (domain.PasswordSettings, error)
 }
 
+// PrivacyService owns account privacy rule storage/evaluation.
+type PrivacyService interface {
+	GetRules(ctx context.Context, ownerUserID int64, key domain.PrivacyKey) (domain.PrivacyRules, error)
+	SetRules(ctx context.Context, ownerUserID int64, key domain.PrivacyKey, rules []domain.PrivacyRule) (domain.PrivacyRules, error)
+	AddAllowUser(ctx context.Context, ownerUserID int64, key domain.PrivacyKey, targetUserID int64) (domain.PrivacyRules, bool, error)
+	CanSee(ctx context.Context, ownerUserID, viewerUserID int64, key domain.PrivacyKey) (bool, error)
+}
+
 // HelpService 抽象启动配置与国家区号目录。
 type HelpService interface {
 	GetAppConfig(ctx context.Context, hash int) (domain.AppConfig, bool, error)
@@ -138,6 +146,9 @@ type ContactsService interface {
 	Search(ctx context.Context, userID int64, query string, limit int) (domain.UserSearchResult, error)
 	DeleteContacts(ctx context.Context, userID int64, contactUserIDs []int64) (int, error)
 	UpdateContactNote(ctx context.Context, userID, contactUserID int64, note string, entities []domain.MessageEntity) (domain.Contact, error)
+	SetPersonalPhoto(ctx context.Context, userID, contactUserID int64, photo domain.Photo, date int) (domain.Contact, error)
+	ClearPersonalPhoto(ctx context.Context, userID, contactUserID int64, date int) (domain.Contact, error)
+	PersonalPhotos(ctx context.Context, userID int64, contactUserIDs []int64) (map[int64]domain.ProfilePhotoRef, error)
 	GetPeerSettings(ctx context.Context, userID int64, peer domain.Peer) (domain.PeerSettings, error)
 	BlockContact(ctx context.Context, userID, peerUserID int64, date int) (bool, error)
 	UnblockContact(ctx context.Context, userID, peerUserID int64) (bool, error)
@@ -307,10 +318,15 @@ type FilesService interface {
 	GetPhoto(ctx context.Context, id int64) (domain.Photo, bool, error)
 	GetDocument(ctx context.Context, id int64) (domain.Document, bool, error)
 	UploadProfilePhoto(ctx context.Context, ownerType domain.PeerType, ownerID int64, file domain.UploadedFileRef, date int) (domain.Photo, error)
+	UploadProfilePhotoKind(ctx context.Context, ownerType domain.PeerType, ownerID int64, kind domain.ProfilePhotoKind, file domain.UploadedFileRef, date int) (domain.Photo, error)
 	SetCurrentProfilePhoto(ctx context.Context, ownerType domain.PeerType, ownerID, photoID int64, date int) (domain.Photo, bool, error)
+	SetCurrentProfilePhotoKind(ctx context.Context, ownerType domain.PeerType, ownerID int64, kind domain.ProfilePhotoKind, photoID int64, date int) (domain.Photo, bool, error)
 	CurrentProfilePhoto(ctx context.Context, ownerType domain.PeerType, ownerID int64) (domain.Photo, bool, error)
+	CurrentProfilePhotoKind(ctx context.Context, ownerType domain.PeerType, ownerID int64, kind domain.ProfilePhotoKind) (domain.Photo, bool, error)
 	GetProfilePhotos(ctx context.Context, ownerType domain.PeerType, ownerID int64, offset, limit int, maxID int64) (photos []domain.Photo, total int, err error)
+	GetProfilePhotosKind(ctx context.Context, ownerType domain.PeerType, ownerID int64, kind domain.ProfilePhotoKind, offset, limit int, maxID int64) (photos []domain.Photo, total int, err error)
 	DeleteProfilePhotos(ctx context.Context, ownerType domain.PeerType, ownerID int64, photoIDs []int64) (int, error)
+	DeleteProfilePhotosKind(ctx context.Context, ownerType domain.PeerType, ownerID int64, kind domain.ProfilePhotoKind, photoIDs []int64) (int, error)
 }
 
 // LangPackService 抽象客户端语言包查询。
@@ -324,6 +340,7 @@ type LangPackService interface {
 type Deps struct {
 	Auth     AuthService
 	Account  AccountService
+	Privacy  PrivacyService
 	Help     HelpService
 	Users    UsersService
 	Updates  UpdatesService

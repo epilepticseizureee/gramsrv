@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"telesrv/internal/app/userprojection"
 	"telesrv/internal/domain"
 	"telesrv/internal/store"
 )
@@ -18,10 +19,31 @@ var (
 
 const maxSearchLimit = 50
 
+type phonePrivacyService interface {
+	userprojection.PrivacyEvaluator
+	AddAllowUser(ctx context.Context, ownerUserID int64, key domain.PrivacyKey, targetUserID int64) (domain.PrivacyRules, bool, error)
+}
+
 // Service 提供通讯录查询。
 type Service struct {
-	contacts store.ContactStore
-	users    store.UserStore
+	contacts  store.ContactStore
+	users     store.UserStore
+	photos    userprojection.ProfilePhotoProvider
+	privacy   phonePrivacyService
+	projector *userprojection.Projector
+}
+
+// Option adjusts optional contacts service dependencies.
+type Option func(*Service)
+
+// WithPhotoProvider enables current profile photo enrichment for returned users.
+func WithPhotoProvider(p userprojection.ProfilePhotoProvider) Option {
+	return func(s *Service) { s.photos = p }
+}
+
+// WithPrivacyEvaluator enables viewer-specific privacy projection.
+func WithPrivacyEvaluator(p phonePrivacyService) Option {
+	return func(s *Service) { s.privacy = p }
 }
 
 // NewService 创建 contacts 服务。
@@ -30,7 +52,31 @@ func NewService(contacts store.ContactStore, users ...store.UserStore) *Service 
 	if len(users) > 0 {
 		s.users = users[0]
 	}
+	s.rebuildProjector()
 	return s
+}
+
+// Configure applies optional dependencies after construction.
+func (s *Service) Configure(opts ...Option) *Service {
+	if s == nil {
+		return s
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	s.rebuildProjector()
+	return s
+}
+
+func (s *Service) rebuildProjector() {
+	if s == nil {
+		return
+	}
+	s.projector = userprojection.New(
+		userprojection.WithContactStore(s.contacts),
+		userprojection.WithPhotoProvider(s.photos),
+		userprojection.WithPrivacyEvaluator(s.privacy),
+	)
 }
 
 // GetContacts 返回当前登录账号的通讯录。未登录或无持久化实现时按空账号处理。
@@ -46,6 +92,9 @@ func (s *Service) GetContacts(ctx context.Context, userID int64, hash int64) (do
 		if err := s.attachCurrentLastSeen(ctx, &list); err != nil {
 			return domain.ContactList{}, false, err
 		}
+	}
+	if err := s.projectContactUsers(ctx, userID, &list); err != nil {
+		return domain.ContactList{}, false, err
 	}
 	if hash != 0 && hash == list.Hash {
 		return list, true, nil
@@ -110,7 +159,12 @@ func (s *Service) AddContact(ctx context.Context, userID int64, input domain.Con
 	if err != nil {
 		return domain.Contact{}, err
 	}
-	return contact, nil
+	if input.AddPhonePrivacyException && s.privacy != nil {
+		if _, _, err := s.privacy.AddAllowUser(ctx, userID, domain.PrivacyKeyPhoneNumber, input.ContactUserID); err != nil {
+			return domain.Contact{}, err
+		}
+	}
+	return s.projectContact(ctx, userID, contact)
 }
 
 // AcceptContact shares the current user's phone/profile with an existing one-way contact.
@@ -151,6 +205,11 @@ func (s *Service) AcceptContact(ctx context.Context, userID, contactUserID int64
 	if err != nil {
 		return domain.Contact{}, err
 	}
+	if s.privacy != nil {
+		if _, _, err := s.privacy.AddAllowUser(ctx, userID, domain.PrivacyKeyPhoneNumber, contactUserID); err != nil {
+			return domain.Contact{}, err
+		}
+	}
 	contact, found, err := s.contacts.Get(ctx, userID, target.ID)
 	if err != nil {
 		return domain.Contact{}, err
@@ -158,7 +217,7 @@ func (s *Service) AcceptContact(ctx context.Context, userID, contactUserID int64
 	if !found {
 		return domain.Contact{}, ErrContactReqMissing
 	}
-	return contact, nil
+	return s.projectContact(ctx, userID, contact)
 }
 
 func (s *Service) ImportContacts(ctx context.Context, userID int64, inputs []domain.ContactInput) (domain.ImportContactsResult, error) {
@@ -229,7 +288,22 @@ func (s *Service) ImportContacts(ctx context.Context, userID int64, inputs []dom
 	if err != nil {
 		return domain.ImportContactsResult{}, err
 	}
+	if s.privacy != nil {
+		for _, input := range upserts {
+			if !input.AddPhonePrivacyException || input.ContactUserID == 0 {
+				continue
+			}
+			if _, _, err := s.privacy.AddAllowUser(ctx, userID, domain.PrivacyKeyPhoneNumber, input.ContactUserID); err != nil {
+				return domain.ImportContactsResult{}, err
+			}
+		}
+	}
 	out.Contacts = append(out.Contacts, contacts...)
+	projected := domain.ContactList{Contacts: out.Contacts}
+	if err := s.projectContactUsers(ctx, userID, &projected); err != nil {
+		return domain.ImportContactsResult{}, err
+	}
+	out.Contacts = projected.Contacts
 	return out, nil
 }
 
@@ -246,7 +320,11 @@ func (s *Service) Search(ctx context.Context, userID int64, query string, limit 
 	if limit <= 0 || limit > maxSearchLimit {
 		limit = maxSearchLimit
 	}
-	return s.users.Search(ctx, userID, query, normalizePhone(query), limit)
+	res, err := s.users.Search(ctx, userID, query, normalizePhone(query), limit)
+	if err != nil {
+		return domain.UserSearchResult{}, err
+	}
+	return s.projectSearchResult(ctx, userID, res)
 }
 
 func (s *Service) DeleteContacts(ctx context.Context, userID int64, contactUserIDs []int64) (int, error) {
@@ -270,6 +348,41 @@ func (s *Service) UpdateContactNote(ctx context.Context, userID, contactUserID i
 	return contact, nil
 }
 
+func (s *Service) SetPersonalPhoto(ctx context.Context, userID, contactUserID int64, photo domain.Photo, date int) (domain.Contact, error) {
+	if s == nil || s.contacts == nil || userID == 0 || contactUserID == 0 || contactUserID == userID || photo.ID == 0 {
+		return domain.Contact{}, ErrContactIDInvalid
+	}
+	contact, found, err := s.contacts.SetPersonalPhoto(ctx, userID, contactUserID, photo.ID, date)
+	if err != nil {
+		return domain.Contact{}, err
+	}
+	if !found {
+		return domain.Contact{}, ErrContactReqMissing
+	}
+	return s.projectContact(ctx, userID, contact)
+}
+
+func (s *Service) ClearPersonalPhoto(ctx context.Context, userID, contactUserID int64, date int) (domain.Contact, error) {
+	if s == nil || s.contacts == nil || userID == 0 || contactUserID == 0 || contactUserID == userID {
+		return domain.Contact{}, ErrContactIDInvalid
+	}
+	contact, found, err := s.contacts.SetPersonalPhoto(ctx, userID, contactUserID, 0, date)
+	if err != nil {
+		return domain.Contact{}, err
+	}
+	if !found {
+		return domain.Contact{}, ErrContactReqMissing
+	}
+	return s.projectContact(ctx, userID, contact)
+}
+
+func (s *Service) PersonalPhotos(ctx context.Context, userID int64, contactUserIDs []int64) (map[int64]domain.ProfilePhotoRef, error) {
+	if s == nil || s.contacts == nil || userID == 0 || len(contactUserIDs) == 0 {
+		return map[int64]domain.ProfilePhotoRef{}, nil
+	}
+	return s.contacts.PersonalPhotos(ctx, userID, contactUserIDs)
+}
+
 func (s *Service) GetPeerSettings(ctx context.Context, userID int64, peer domain.Peer) (domain.PeerSettings, error) {
 	if s == nil || s.contacts == nil || userID == 0 || peer.Type != domain.PeerTypeUser || peer.ID == 0 || peer.ID == userID {
 		return domain.PeerSettings{}, nil
@@ -282,10 +395,18 @@ func (s *Service) GetPeerSettings(ctx context.Context, userID int64, peer domain
 	if err != nil {
 		return domain.PeerSettings{}, err
 	}
+	shareContact := found && !contact.Mutual
+	if s.privacy != nil {
+		peerCanSeePhone, err := s.privacy.CanSee(ctx, userID, peer.ID, domain.PrivacyKeyPhoneNumber)
+		if err != nil {
+			return domain.PeerSettings{}, err
+		}
+		shareContact = found && !peerCanSeePhone
+	}
 	return domain.PeerSettings{
 		AddContact:   !found,
 		BlockContact: !blocked,
-		ShareContact: found && !contact.Mutual,
+		ShareContact: shareContact,
 	}, nil
 }
 
@@ -341,6 +462,51 @@ func (s *Service) ContactIDs(ctx context.Context, userID int64, hash int64) ([]i
 		ids = append(ids, int(contact.User.ID))
 	}
 	return ids, false, nil
+}
+
+func (s *Service) projectContactUsers(ctx context.Context, userID int64, list *domain.ContactList) error {
+	if s == nil || s.projector == nil || list == nil || len(list.Contacts) == 0 {
+		return nil
+	}
+	users := make([]domain.User, len(list.Contacts))
+	for i, contact := range list.Contacts {
+		users[i] = contact.User
+	}
+	projected, err := s.projector.ForViewer(ctx, userID, users)
+	if err != nil {
+		return err
+	}
+	for i := range list.Contacts {
+		list.Contacts[i].User = projected[i]
+	}
+	return nil
+}
+
+func (s *Service) projectContact(ctx context.Context, userID int64, contact domain.Contact) (domain.Contact, error) {
+	list := domain.ContactList{Contacts: []domain.Contact{contact}}
+	if err := s.projectContactUsers(ctx, userID, &list); err != nil {
+		return domain.Contact{}, err
+	}
+	if len(list.Contacts) == 0 {
+		return domain.Contact{}, nil
+	}
+	return list.Contacts[0], nil
+}
+
+func (s *Service) projectSearchResult(ctx context.Context, userID int64, res domain.UserSearchResult) (domain.UserSearchResult, error) {
+	if s == nil || s.projector == nil {
+		return res, nil
+	}
+	var err error
+	res.MyResults, err = s.projector.ForViewer(ctx, userID, res.MyResults)
+	if err != nil {
+		return domain.UserSearchResult{}, err
+	}
+	res.Results, err = s.projector.ForViewer(ctx, userID, res.Results)
+	if err != nil {
+		return domain.UserSearchResult{}, err
+	}
+	return res, nil
 }
 
 func normalizePhone(phone string) string {

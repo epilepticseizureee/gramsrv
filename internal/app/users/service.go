@@ -15,15 +15,15 @@ import (
 var ErrNotAuthorized = errors.New("not authorized")
 
 // ProfilePhotoProvider 批量返回用户当前头像（用于把 PhotoID/DCID/Stripped 富化到 domain.User）。
-type ProfilePhotoProvider interface {
-	CurrentProfilePhotos(ctx context.Context, ownerType domain.PeerType, ownerIDs []int64) (map[int64]domain.ProfilePhotoRef, error)
-}
+type ProfilePhotoProvider = userprojection.ProfilePhotoProvider
 
 // Service 提供用户查询。
 type Service struct {
-	users    store.UserStore
-	contacts store.ContactStore
-	photos   ProfilePhotoProvider
+	users     store.UserStore
+	contacts  store.ContactStore
+	photos    ProfilePhotoProvider
+	privacy   userprojection.PrivacyEvaluator
+	projector *userprojection.Projector
 }
 
 // Option 调整用户服务可选依赖。
@@ -37,6 +37,11 @@ func WithPhotoProvider(p ProfilePhotoProvider) Option {
 // WithContactStore enables viewer-specific contact name/phone projection.
 func WithContactStore(c store.ContactStore) Option {
 	return func(s *Service) { s.contacts = c }
+}
+
+// WithPrivacyEvaluator enables viewer-specific privacy projection.
+func WithPrivacyEvaluator(p userprojection.PrivacyEvaluator) Option {
+	return func(s *Service) { s.privacy = p }
 }
 
 const (
@@ -53,6 +58,11 @@ func NewService(users store.UserStore, opts ...Option) *Service {
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.projector = userprojection.New(
+		userprojection.WithContactStore(s.contacts),
+		userprojection.WithPhotoProvider(s.photos),
+		userprojection.WithPrivacyEvaluator(s.privacy),
+	)
 	return s
 }
 
@@ -77,7 +87,7 @@ func (s *Service) Self(ctx context.Context, userID int64) (domain.User, error) {
 	if err != nil {
 		return domain.User{}, err
 	}
-	return s.enrichOne(ctx, u), nil
+	return s.projectOne(ctx, userID, u)
 }
 
 // ByID 返回指定用户。调用方必须已登录；access_hash 校验在 RPC 边界完成。
@@ -92,8 +102,7 @@ func (s *Service) ByID(ctx context.Context, currentUserID, userID int64) (domain
 	if !found {
 		return u, false, nil
 	}
-	u = s.enrichOne(ctx, u)
-	u, err = userprojection.One(ctx, s.contacts, currentUserID, u)
+	u, err = s.projectOne(ctx, currentUserID, u)
 	if err != nil {
 		return domain.User{}, false, err
 	}
@@ -127,38 +136,7 @@ func (s *Service) ByIDs(ctx context.Context, currentUserID int64, userIDs []int6
 	if err != nil {
 		return nil, err
 	}
-	users = s.enrich(ctx, users)
-	return userprojection.ForViewer(ctx, s.contacts, currentUserID, users)
-}
-
-// enrich 批量把当前头像富化到用户列表（best-effort：失败不影响用户查询）。
-func (s *Service) enrich(ctx context.Context, users []domain.User) []domain.User {
-	if s.photos == nil || len(users) == 0 {
-		return users
-	}
-	ids := make([]int64, 0, len(users))
-	for _, u := range users {
-		if u.ID != 0 {
-			ids = append(ids, u.ID)
-		}
-	}
-	refs, err := s.photos.CurrentProfilePhotos(ctx, domain.PeerTypeUser, ids)
-	if err != nil {
-		return users
-	}
-	for i := range users {
-		if ref, ok := refs[users[i].ID]; ok {
-			users[i].PhotoID = ref.PhotoID
-			users[i].PhotoDCID = ref.DCID
-			users[i].PhotoStripped = ref.Stripped
-		}
-	}
-	return users
-}
-
-func (s *Service) enrichOne(ctx context.Context, u domain.User) domain.User {
-	enriched := s.enrich(ctx, []domain.User{u})
-	return enriched[0]
+	return s.projectUsers(ctx, currentUserID, users)
 }
 
 // CheckUsername 校验当前用户是否可以占用 username。
@@ -261,8 +239,7 @@ func (s *Service) ResolveUsername(ctx context.Context, currentUserID int64, user
 	if err != nil || !found {
 		return u, found, err
 	}
-	u = s.enrichOne(ctx, u)
-	u, err = userprojection.One(ctx, s.contacts, currentUserID, u)
+	u, err = s.projectOne(ctx, currentUserID, u)
 	if err != nil {
 		return domain.User{}, false, err
 	}
@@ -282,12 +259,25 @@ func (s *Service) ResolvePhone(ctx context.Context, currentUserID int64, phone s
 	if err != nil || !found {
 		return u, found, err
 	}
-	u = s.enrichOne(ctx, u)
-	u, err = userprojection.One(ctx, s.contacts, currentUserID, u)
+	u, err = s.projectOne(ctx, currentUserID, u)
 	if err != nil {
 		return domain.User{}, false, err
 	}
 	return u, true, nil
+}
+
+func (s *Service) projectUsers(ctx context.Context, viewerUserID int64, users []domain.User) ([]domain.User, error) {
+	if s == nil || s.projector == nil {
+		return users, nil
+	}
+	return s.projector.ForViewer(ctx, viewerUserID, users)
+}
+
+func (s *Service) projectOne(ctx context.Context, viewerUserID int64, user domain.User) (domain.User, error) {
+	if s == nil || s.projector == nil {
+		return user, nil
+	}
+	return s.projector.One(ctx, viewerUserID, user)
 }
 
 func normalizeUsername(username string) string {

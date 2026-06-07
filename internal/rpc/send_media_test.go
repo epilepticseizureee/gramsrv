@@ -70,16 +70,31 @@ func (f *fakeFiles) GetDocument(_ context.Context, id int64) (domain.Document, b
 func (f *fakeFiles) UploadProfilePhoto(context.Context, domain.PeerType, int64, domain.UploadedFileRef, int) (domain.Photo, error) {
 	return domain.Photo{}, nil
 }
+func (f *fakeFiles) UploadProfilePhotoKind(context.Context, domain.PeerType, int64, domain.ProfilePhotoKind, domain.UploadedFileRef, int) (domain.Photo, error) {
+	return domain.Photo{}, nil
+}
 func (f *fakeFiles) SetCurrentProfilePhoto(context.Context, domain.PeerType, int64, int64, int) (domain.Photo, bool, error) {
+	return domain.Photo{}, false, nil
+}
+func (f *fakeFiles) SetCurrentProfilePhotoKind(context.Context, domain.PeerType, int64, domain.ProfilePhotoKind, int64, int) (domain.Photo, bool, error) {
 	return domain.Photo{}, false, nil
 }
 func (f *fakeFiles) CurrentProfilePhoto(context.Context, domain.PeerType, int64) (domain.Photo, bool, error) {
 	return domain.Photo{}, false, nil
 }
+func (f *fakeFiles) CurrentProfilePhotoKind(context.Context, domain.PeerType, int64, domain.ProfilePhotoKind) (domain.Photo, bool, error) {
+	return domain.Photo{}, false, nil
+}
 func (f *fakeFiles) GetProfilePhotos(context.Context, domain.PeerType, int64, int, int, int64) ([]domain.Photo, int, error) {
 	return nil, 0, nil
 }
+func (f *fakeFiles) GetProfilePhotosKind(context.Context, domain.PeerType, int64, domain.ProfilePhotoKind, int, int, int64) ([]domain.Photo, int, error) {
+	return nil, 0, nil
+}
 func (f *fakeFiles) DeleteProfilePhotos(context.Context, domain.PeerType, int64, []int64) (int, error) {
+	return 0, nil
+}
+func (f *fakeFiles) DeleteProfilePhotosKind(context.Context, domain.PeerType, int64, domain.ProfilePhotoKind, []int64) (int, error) {
 	return 0, nil
 }
 

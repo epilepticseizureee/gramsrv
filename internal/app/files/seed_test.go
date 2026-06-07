@@ -159,16 +159,31 @@ func (f *fakeMediaStore) CountAvailableReactions(_ context.Context) (int, error)
 func (f *fakeMediaStore) AddProfilePhoto(_ context.Context, _ domain.PeerType, _, _ int64, _ int) error {
 	return nil
 }
+func (f *fakeMediaStore) AddProfilePhotoKind(_ context.Context, _ domain.PeerType, _ int64, _ domain.ProfilePhotoKind, _ int64, _ int) error {
+	return nil
+}
 func (f *fakeMediaStore) CurrentProfilePhoto(_ context.Context, _ domain.PeerType, _ int64) (int64, bool, error) {
+	return 0, false, nil
+}
+func (f *fakeMediaStore) CurrentProfilePhotoKind(_ context.Context, _ domain.PeerType, _ int64, _ domain.ProfilePhotoKind) (int64, bool, error) {
 	return 0, false, nil
 }
 func (f *fakeMediaStore) CurrentProfilePhotos(_ context.Context, _ domain.PeerType, _ []int64) (map[int64]domain.ProfilePhotoRef, error) {
 	return map[int64]domain.ProfilePhotoRef{}, nil
 }
+func (f *fakeMediaStore) CurrentProfilePhotosKind(_ context.Context, _ domain.PeerType, _ []int64, _ domain.ProfilePhotoKind) (map[int64]domain.ProfilePhotoRef, error) {
+	return map[int64]domain.ProfilePhotoRef{}, nil
+}
 func (f *fakeMediaStore) ListProfilePhotos(_ context.Context, _ domain.PeerType, _ int64, _, _ int, _ int64) ([]int64, int, error) {
 	return nil, 0, nil
 }
+func (f *fakeMediaStore) ListProfilePhotosKind(_ context.Context, _ domain.PeerType, _ int64, _ domain.ProfilePhotoKind, _, _ int, _ int64) ([]int64, int, error) {
+	return nil, 0, nil
+}
 func (f *fakeMediaStore) DeleteProfilePhotos(_ context.Context, _ domain.PeerType, _ int64, _ []int64) ([]int64, error) {
+	return nil, nil
+}
+func (f *fakeMediaStore) DeleteProfilePhotosKind(_ context.Context, _ domain.PeerType, _ int64, _ domain.ProfilePhotoKind, _ []int64) ([]int64, error) {
 	return nil, nil
 }
 

@@ -276,6 +276,52 @@ func (s *ContactStore) Get(_ context.Context, userID, contactUserID int64) (doma
 	return domain.Contact{}, false, nil
 }
 
+func (s *ContactStore) GetMany(_ context.Context, userID int64, contactUserIDs []int64) (map[int64]domain.Contact, error) {
+	out := make(map[int64]domain.Contact, len(contactUserIDs))
+	if userID == 0 || len(contactUserIDs) == 0 {
+		return out, nil
+	}
+	want := make(map[int64]struct{}, len(contactUserIDs))
+	for _, id := range contactUserIDs {
+		if id != 0 {
+			want[id] = struct{}{}
+		}
+	}
+	s.mu.RLock()
+	list := s.m[userID]
+	s.mu.RUnlock()
+	for _, contact := range list.Contacts {
+		if _, ok := want[contact.User.ID]; ok {
+			out[contact.User.ID] = cloneContact(contact)
+		}
+	}
+	return out, nil
+}
+
+func (s *ContactStore) GetReverseContacts(_ context.Context, userID int64, ownerUserIDs []int64) (map[int64]domain.Contact, error) {
+	out := make(map[int64]domain.Contact, len(ownerUserIDs))
+	if userID == 0 || len(ownerUserIDs) == 0 {
+		return out, nil
+	}
+	want := make(map[int64]struct{}, len(ownerUserIDs))
+	for _, id := range ownerUserIDs {
+		if id != 0 {
+			want[id] = struct{}{}
+		}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for ownerID := range want {
+		for _, contact := range s.m[ownerID].Contacts {
+			if contact.User.ID == userID {
+				out[ownerID] = cloneContact(contact)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 func (s *ContactStore) Upsert(_ context.Context, userID int64, input domain.ContactInput) (domain.Contact, error) {
 	contact := domain.Contact{
 		User: domain.User{
@@ -364,6 +410,52 @@ func (s *ContactStore) UpdateNote(_ context.Context, userID, contactUserID int64
 		return cloneContact(list.Contacts[i]), true, nil
 	}
 	return domain.Contact{}, false, nil
+}
+
+func (s *ContactStore) SetPersonalPhoto(_ context.Context, userID, contactUserID int64, photoID int64, date int) (domain.Contact, bool, error) {
+	_ = date
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list := s.m[userID]
+	for i := range list.Contacts {
+		if list.Contacts[i].User.ID != contactUserID {
+			continue
+		}
+		list.Contacts[i].User.PhotoID = photoID
+		list.Contacts[i].User.PhotoPersonal = photoID != 0
+		list.Hash = contactListHash(list.Contacts)
+		s.m[userID] = list
+		return cloneContact(list.Contacts[i]), true, nil
+	}
+	return domain.Contact{}, false, nil
+}
+
+func (s *ContactStore) PersonalPhotos(_ context.Context, userID int64, contactUserIDs []int64) (map[int64]domain.ProfilePhotoRef, error) {
+	out := make(map[int64]domain.ProfilePhotoRef, len(contactUserIDs))
+	if userID == 0 || len(contactUserIDs) == 0 {
+		return out, nil
+	}
+	want := make(map[int64]struct{}, len(contactUserIDs))
+	for _, id := range contactUserIDs {
+		if id != 0 {
+			want[id] = struct{}{}
+		}
+	}
+	s.mu.RLock()
+	list := s.m[userID]
+	s.mu.RUnlock()
+	for _, contact := range list.Contacts {
+		if _, ok := want[contact.User.ID]; !ok || contact.User.PhotoID == 0 {
+			continue
+		}
+		out[contact.User.ID] = domain.ProfilePhotoRef{
+			PhotoID:  contact.User.PhotoID,
+			DCID:     contact.User.PhotoDCID,
+			Stripped: append([]byte(nil), contact.User.PhotoStripped...),
+			Personal: true,
+		}
+	}
+	return out, nil
 }
 
 func (s *ContactStore) Delete(_ context.Context, userID int64, contactUserIDs []int64) (int, error) {

@@ -21,10 +21,11 @@ type User struct {
 	Support     bool
 	Contact     bool
 	Mutual      bool
-	// Profile photo：反范式存于 users 表，便于无 join 渲染头像。PhotoID==0 表示无头像。
+	// Profile photo fields are filled by app-layer user projection. PhotoID==0 表示无头像。
 	PhotoID       int64
 	PhotoDCID     int
 	PhotoStripped []byte
+	PhotoPersonal bool
 	LastSeenAt    int
 	Status        UserStatus
 }
@@ -60,4 +61,18 @@ type UserProfileUpdate struct {
 	HasLastName  bool
 	About        string
 	HasAbout     bool
+}
+
+// UserFullView is the app-layer personalized full user view consumed by RPC.
+type UserFullView struct {
+	User                   User
+	ProfilePhoto           *Photo
+	PersonalPhoto          *Photo
+	FallbackPhoto          *Photo
+	About                  string
+	PhoneCallsAvailable    bool
+	PhoneCallsPrivate      bool
+	VideoCallsAvailable    bool
+	VoiceMessagesForbidden bool
+	ReadDatesPrivate       bool
 }

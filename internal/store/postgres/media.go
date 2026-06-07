@@ -420,27 +420,44 @@ func (s *MediaStore) CountAvailableReactions(ctx context.Context) (int, error) {
 // ---- 头像历史 ----
 
 func (s *MediaStore) AddProfilePhoto(ctx context.Context, ownerType domain.PeerType, ownerID, photoID int64, date int) error {
-	next, err := s.q.NextProfilePhotoOrder(ctx, sqlcgen.NextProfilePhotoOrderParams{
-		OwnerPeerType: string(ownerType),
-		OwnerPeerID:   ownerID,
-	})
+	return s.AddProfilePhotoKind(ctx, ownerType, ownerID, domain.ProfilePhotoKindProfile, photoID, date)
+}
+
+func (s *MediaStore) AddProfilePhotoKind(ctx context.Context, ownerType domain.PeerType, ownerID int64, kind domain.ProfilePhotoKind, photoID int64, date int) error {
+	kind = normalizeProfilePhotoKind(kind)
+	next, err := s.nextProfilePhotoOrder(ctx, ownerType, ownerID, kind)
 	if err != nil {
 		return err
 	}
-	return s.q.AddProfilePhoto(ctx, sqlcgen.AddProfilePhotoParams{
-		OwnerPeerType: string(ownerType),
-		OwnerPeerID:   ownerID,
-		PhotoID:       photoID,
-		Date:          int32(date),
-		SortOrder:     next + 1,
-	})
+	_, err = s.db.Exec(ctx, `
+INSERT INTO profile_photos (owner_peer_type, owner_peer_id, kind, photo_id, date, active, sort_order)
+VALUES ($1, $2, $3, $4, $5, true, $6)
+ON CONFLICT (owner_peer_type, owner_peer_id, kind, photo_id) DO UPDATE SET
+  date = EXCLUDED.date,
+  active = true,
+  sort_order = EXCLUDED.sort_order
+`, string(ownerType), ownerID, string(kind), photoID, date, next+1)
+	return err
 }
 
 func (s *MediaStore) CurrentProfilePhoto(ctx context.Context, ownerType domain.PeerType, ownerID int64) (int64, bool, error) {
-	id, err := s.q.CurrentProfilePhoto(ctx, sqlcgen.CurrentProfilePhotoParams{
-		OwnerPeerType: string(ownerType),
-		OwnerPeerID:   ownerID,
-	})
+	return s.CurrentProfilePhotoKind(ctx, ownerType, ownerID, domain.ProfilePhotoKindProfile)
+}
+
+func (s *MediaStore) CurrentProfilePhotoKind(ctx context.Context, ownerType domain.PeerType, ownerID int64, kind domain.ProfilePhotoKind) (int64, bool, error) {
+	kind = normalizeProfilePhotoKind(kind)
+	row := s.db.QueryRow(ctx, `
+SELECT photo_id
+FROM profile_photos
+WHERE owner_peer_type = $1
+  AND owner_peer_id = $2
+  AND kind = $3
+  AND active
+ORDER BY sort_order DESC
+LIMIT 1
+`, string(ownerType), ownerID, string(kind))
+	var id int64
+	err := row.Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, false, nil
@@ -451,59 +468,156 @@ func (s *MediaStore) CurrentProfilePhoto(ctx context.Context, ownerType domain.P
 }
 
 func (s *MediaStore) CurrentProfilePhotos(ctx context.Context, ownerType domain.PeerType, ownerIDs []int64) (map[int64]domain.ProfilePhotoRef, error) {
+	return s.CurrentProfilePhotosKind(ctx, ownerType, ownerIDs, domain.ProfilePhotoKindProfile)
+}
+
+func (s *MediaStore) CurrentProfilePhotosKind(ctx context.Context, ownerType domain.PeerType, ownerIDs []int64, kind domain.ProfilePhotoKind) (map[int64]domain.ProfilePhotoRef, error) {
 	if len(ownerIDs) == 0 {
 		return map[int64]domain.ProfilePhotoRef{}, nil
 	}
-	rows, err := s.q.CurrentProfilePhotosForOwners(ctx, sqlcgen.CurrentProfilePhotosForOwnersParams{
-		OwnerPeerType: string(ownerType),
-		OwnerIds:      ownerIDs,
-	})
+	kind = normalizeProfilePhotoKind(kind)
+	rows, err := s.db.Query(ctx, `
+SELECT DISTINCT ON (pp.owner_peer_id)
+  pp.owner_peer_id,
+  pp.photo_id,
+  ph.dc_id,
+  ph.sizes::text AS sizes_json
+FROM profile_photos pp
+JOIN photos ph ON ph.id = pp.photo_id
+WHERE pp.owner_peer_type = $1
+  AND pp.owner_peer_id = ANY($2::bigint[])
+  AND pp.kind = $3
+  AND pp.active
+ORDER BY pp.owner_peer_id, pp.sort_order DESC
+`, string(ownerType), ownerIDs, string(kind))
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[int64]domain.ProfilePhotoRef, len(rows))
-	for _, r := range rows {
-		sizes, err := decodePhotoSizes(r.SizesJson)
+	defer rows.Close()
+	out := make(map[int64]domain.ProfilePhotoRef, len(ownerIDs))
+	for rows.Next() {
+		var ownerID, photoID int64
+		var dcID int32
+		var sizesJSON string
+		if err := rows.Scan(&ownerID, &photoID, &dcID, &sizesJSON); err != nil {
+			return nil, err
+		}
+		sizes, err := decodePhotoSizes(sizesJSON)
 		if err != nil {
 			return nil, err
 		}
-		out[r.OwnerPeerID] = domain.ProfilePhotoRef{
-			PhotoID:  r.PhotoID,
-			DCID:     int(r.DcID),
+		out[ownerID] = domain.ProfilePhotoRef{
+			PhotoID:  photoID,
+			DCID:     int(dcID),
 			Stripped: domain.StrippedFromSizes(sizes),
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
 
 func (s *MediaStore) ListProfilePhotos(ctx context.Context, ownerType domain.PeerType, ownerID int64, offset, limit int, maxID int64) ([]int64, int, error) {
-	ids, err := s.q.ListProfilePhotos(ctx, sqlcgen.ListProfilePhotosParams{
-		OwnerPeerType: string(ownerType),
-		OwnerPeerID:   ownerID,
-		MaxID:         maxID,
-		OffsetCount:   int32(offset),
-		LimitCount:    int32(limit),
-	})
+	return s.ListProfilePhotosKind(ctx, ownerType, ownerID, domain.ProfilePhotoKindProfile, offset, limit, maxID)
+}
+
+func (s *MediaStore) ListProfilePhotosKind(ctx context.Context, ownerType domain.PeerType, ownerID int64, kind domain.ProfilePhotoKind, offset, limit int, maxID int64) ([]int64, int, error) {
+	kind = normalizeProfilePhotoKind(kind)
+	rows, err := s.db.Query(ctx, `
+SELECT photo_id
+FROM profile_photos
+WHERE owner_peer_type = $1
+  AND owner_peer_id = $2
+  AND kind = $3
+  AND active
+  AND ($4::bigint <= 0 OR photo_id < $4::bigint)
+ORDER BY sort_order DESC
+OFFSET $5
+LIMIT $6
+`, string(ownerType), ownerID, string(kind), maxID, offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}
-	total, err := s.q.CountProfilePhotos(ctx, sqlcgen.CountProfilePhotosParams{
-		OwnerPeerType: string(ownerType),
-		OwnerPeerID:   ownerID,
-	})
+	defer rows.Close()
+	ids := make([]int64, 0, limit)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	var total int
+	err = s.db.QueryRow(ctx, `
+SELECT count(*)::int
+FROM profile_photos
+WHERE owner_peer_type = $1
+  AND owner_peer_id = $2
+  AND kind = $3
+  AND active
+`, string(ownerType), ownerID, string(kind)).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
-	return ids, int(total), nil
+	return ids, total, nil
 }
 
 func (s *MediaStore) DeleteProfilePhotos(ctx context.Context, ownerType domain.PeerType, ownerID int64, photoIDs []int64) ([]int64, error) {
+	return s.DeleteProfilePhotosKind(ctx, ownerType, ownerID, domain.ProfilePhotoKindProfile, photoIDs)
+}
+
+func (s *MediaStore) DeleteProfilePhotosKind(ctx context.Context, ownerType domain.PeerType, ownerID int64, kind domain.ProfilePhotoKind, photoIDs []int64) ([]int64, error) {
 	if len(photoIDs) == 0 {
 		return nil, nil
 	}
-	return s.q.DeactivateProfilePhotos(ctx, sqlcgen.DeactivateProfilePhotosParams{
-		OwnerPeerType: string(ownerType),
-		OwnerPeerID:   ownerID,
-		PhotoIds:      photoIDs,
-	})
+	kind = normalizeProfilePhotoKind(kind)
+	rows, err := s.db.Query(ctx, `
+UPDATE profile_photos
+SET active = false
+WHERE owner_peer_type = $1
+  AND owner_peer_id = $2
+  AND kind = $3
+  AND photo_id = ANY($4::bigint[])
+  AND active
+RETURNING photo_id
+`, string(ownerType), ownerID, string(kind), photoIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	deleted := make([]int64, 0, len(photoIDs))
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		deleted = append(deleted, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return deleted, nil
+}
+
+func (s *MediaStore) nextProfilePhotoOrder(ctx context.Context, ownerType domain.PeerType, ownerID int64, kind domain.ProfilePhotoKind) (int64, error) {
+	var maxOrder int64
+	err := s.db.QueryRow(ctx, `
+SELECT COALESCE(MAX(sort_order), 0)::bigint
+FROM profile_photos
+WHERE owner_peer_type = $1
+  AND owner_peer_id = $2
+  AND kind = $3
+`, string(ownerType), ownerID, string(kind)).Scan(&maxOrder)
+	return maxOrder, err
+}
+
+func normalizeProfilePhotoKind(kind domain.ProfilePhotoKind) domain.ProfilePhotoKind {
+	if kind == domain.ProfilePhotoKindFallback {
+		return kind
+	}
+	return domain.ProfilePhotoKindProfile
 }

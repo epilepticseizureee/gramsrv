@@ -26,6 +26,7 @@ import (
 	"telesrv/internal/app/langpack"
 	"telesrv/internal/app/maintenance"
 	messageapp "telesrv/internal/app/messages"
+	privacyapp "telesrv/internal/app/privacy"
 	"telesrv/internal/app/updates"
 	"telesrv/internal/app/users"
 	"telesrv/internal/config"
@@ -125,6 +126,7 @@ func run(logger *zap.Logger) error {
 	messageStore := postgres.NewMessageStore(pool, postgres.WithMessageAllocators(boxIDAllocator, ptsAllocator))
 	channelStore := postgres.NewChannelStore(pool, postgres.WithChannelAllocators(channelIDAllocator, channelPtsAllocator, channelMessageIDAllocator))
 	mediaStore := postgres.NewMediaStore(pool)
+	privacyStore := postgres.NewPrivacyStore(pool)
 	blobBackend, err := filesapp.NewLocalFS(cfg.BlobDir)
 	if err != nil {
 		return fmt.Errorf("init blob backend: %w", err)
@@ -170,6 +172,7 @@ func run(logger *zap.Logger) error {
 		rpc.WithOutboxPushTimeout(cfg.OutboundPushTimeout),
 	).Run(ctx)
 	langPackService := langpack.NewService(langPackStore)
+	privacyService := privacyapp.NewService(privacyStore, contactStore)
 	if seeded, err := langPackService.SeedDirectory(ctx, cfg.LangPackSeedDir); err != nil {
 		return fmt.Errorf("seed langpack: %w", err)
 	} else if seeded > 0 {
@@ -184,12 +187,13 @@ func run(logger *zap.Logger) error {
 	}, rpc.Deps{
 		Auth:     auth.NewService(userStore, authzStore, codeStore, authKeyStore, tempAuthKeyStore, cfg.DevAuthCode, auth.WithLoginMessages(messageStore, dialogStore)),
 		Account:  account.NewService(passwordStore, account.WithReactionSettings(passwordStore)),
+		Privacy:  privacyService,
 		Help:     help.NewService(helpStore, helpStore),
-		Users:    users.NewService(userStore, users.WithContactStore(contactStore), users.WithPhotoProvider(mediaStore)),
+		Users:    users.NewService(userStore, users.WithContactStore(contactStore), users.WithPhotoProvider(mediaStore), users.WithPrivacyEvaluator(privacyService)),
 		Updates:  updates.NewService(updateStateStore, updateEventStore, updates.WithPtsAllocator(ptsAllocator)),
-		Contacts: contacts.NewService(contactStore, userStore),
-		Dialogs:  dialogs.NewService(dialogStore, channelStore),
-		Messages: messageapp.NewService(messageStore, dialogStore, messageapp.WithContactStore(contactStore)),
+		Contacts: contacts.NewService(contactStore, userStore).Configure(contacts.WithPhotoProvider(mediaStore), contacts.WithPrivacyEvaluator(privacyService)),
+		Dialogs:  dialogs.NewService(dialogStore, channelStore).Configure(dialogs.WithContactStore(contactStore), dialogs.WithPhotoProvider(mediaStore), dialogs.WithPrivacyEvaluator(privacyService)),
+		Messages: messageapp.NewService(messageStore, dialogStore, messageapp.WithContactStore(contactStore), messageapp.WithPhotoProvider(mediaStore), messageapp.WithPrivacyEvaluator(privacyService)),
 		Channels: channelapp.NewService(channelStore),
 		Files:    filesService,
 		LangPack: langPackService,

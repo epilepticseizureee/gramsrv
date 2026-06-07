@@ -8,14 +8,37 @@ import (
 	"sort"
 	"unicode/utf8"
 
+	"telesrv/internal/app/userprojection"
 	"telesrv/internal/domain"
 	"telesrv/internal/store"
 )
 
 // Service 提供会话列表查询。
 type Service struct {
-	dialogs  store.DialogStore
-	channels store.ChannelStore
+	dialogs   store.DialogStore
+	channels  store.ChannelStore
+	contacts  store.ContactStore
+	photos    userprojection.ProfilePhotoProvider
+	privacy   userprojection.PrivacyEvaluator
+	projector *userprojection.Projector
+}
+
+// Option adjusts optional dialogs service dependencies.
+type Option func(*Service)
+
+// WithContactStore enables viewer-specific user projection for dialog users.
+func WithContactStore(c store.ContactStore) Option {
+	return func(s *Service) { s.contacts = c }
+}
+
+// WithPhotoProvider enables current profile photo enrichment for dialog users.
+func WithPhotoProvider(p userprojection.ProfilePhotoProvider) Option {
+	return func(s *Service) { s.photos = p }
+}
+
+// WithPrivacyEvaluator enables viewer-specific privacy projection for dialog users.
+func WithPrivacyEvaluator(p userprojection.PrivacyEvaluator) Option {
+	return func(s *Service) { s.privacy = p }
 }
 
 // NewService 创建 dialogs 服务。
@@ -24,7 +47,31 @@ func NewService(dialogs store.DialogStore, channels ...store.ChannelStore) *Serv
 	if len(channels) > 0 {
 		s.channels = channels[0]
 	}
+	s.rebuildProjector()
 	return s
+}
+
+// Configure applies optional dependencies after construction.
+func (s *Service) Configure(opts ...Option) *Service {
+	if s == nil {
+		return s
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	s.rebuildProjector()
+	return s
+}
+
+func (s *Service) rebuildProjector() {
+	if s == nil {
+		return
+	}
+	s.projector = userprojection.New(
+		userprojection.WithContactStore(s.contacts),
+		userprojection.WithPhotoProvider(s.photos),
+		userprojection.WithPrivacyEvaluator(s.privacy),
+	)
 }
 
 // GetDialogs 返回当前登录账号的会话摘要。未登录或无持久化实现时按空账号处理。
@@ -81,6 +128,9 @@ func (s *Service) GetDialogs(ctx context.Context, userID int64, filter domain.Di
 	if err := s.attachDrafts(ctx, userID, &out); err != nil {
 		return domain.DialogList{}, err
 	}
+	if err := s.projectDialogUsers(ctx, userID, &out); err != nil {
+		return domain.DialogList{}, err
+	}
 	return out, nil
 }
 
@@ -122,6 +172,9 @@ func (s *Service) GetPeerDialogs(ctx context.Context, userID int64, peers []doma
 		}
 	}
 	if err := s.attachDrafts(ctx, userID, &out); err != nil {
+		return domain.DialogList{}, err
+	}
+	if err := s.projectDialogUsers(ctx, userID, &out); err != nil {
 		return domain.DialogList{}, err
 	}
 	return out, nil
@@ -436,6 +489,18 @@ func (s *Service) attachDrafts(ctx context.Context, userID int64, list *domain.D
 	if attached {
 		list.Hash = dialogHashWithDrafts(list.Hash, list.Dialogs)
 	}
+	return nil
+}
+
+func (s *Service) projectDialogUsers(ctx context.Context, userID int64, list *domain.DialogList) error {
+	if s == nil || s.projector == nil || list == nil || len(list.Users) == 0 {
+		return nil
+	}
+	users, err := s.projector.ForViewer(ctx, userID, list.Users)
+	if err != nil {
+		return err
+	}
+	list.Users = users
 	return nil
 }
 

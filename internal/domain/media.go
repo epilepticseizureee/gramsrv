@@ -258,11 +258,21 @@ type StickerSet struct {
 	SystemKey string `json:"system_key,omitempty"`
 }
 
-// ProfilePhotoRef 是渲染头像所需的最小信息（当前 profile photo）。
+// ProfilePhotoKind distinguishes a user's real profile photo from the fallback
+// public photo shown when privacy hides the real one.
+type ProfilePhotoKind string
+
+const (
+	ProfilePhotoKindProfile  ProfilePhotoKind = "profile"
+	ProfilePhotoKindFallback ProfilePhotoKind = "fallback"
+)
+
+// ProfilePhotoRef 是渲染头像所需的最小信息（当前 profile/fallback/personal photo）。
 type ProfilePhotoRef struct {
 	PhotoID  int64
 	DCID     int
 	Stripped []byte // photoStrippedSize 内联缩略图，可空
+	Personal bool   // true 表示 viewer 私有联系人头像
 }
 
 // StrippedFromSizes 从照片尺寸列表里取出 stripped 缩略图字节（用于 UserProfilePhoto/ChatPhoto 占位）。

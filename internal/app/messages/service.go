@@ -10,9 +10,12 @@ import (
 
 // Service 提供消息历史、搜索与已读业务。
 type Service struct {
-	messages store.MessageStore
-	dialogs  store.DialogStore
-	contacts store.ContactStore
+	messages  store.MessageStore
+	dialogs   store.DialogStore
+	contacts  store.ContactStore
+	photos    userprojection.ProfilePhotoProvider
+	privacy   userprojection.PrivacyEvaluator
+	projector *userprojection.Projector
 }
 
 // Option adjusts optional message service dependencies.
@@ -23,12 +26,27 @@ func WithContactStore(c store.ContactStore) Option {
 	return func(s *Service) { s.contacts = c }
 }
 
+// WithPhotoProvider enables current profile photo enrichment for message users.
+func WithPhotoProvider(p userprojection.ProfilePhotoProvider) Option {
+	return func(s *Service) { s.photos = p }
+}
+
+// WithPrivacyEvaluator enables viewer-specific privacy projection for message users.
+func WithPrivacyEvaluator(p userprojection.PrivacyEvaluator) Option {
+	return func(s *Service) { s.privacy = p }
+}
+
 // NewService 创建 messages 服务。
 func NewService(messages store.MessageStore, dialogs store.DialogStore, opts ...Option) *Service {
 	s := &Service{messages: messages, dialogs: dialogs}
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.projector = userprojection.New(
+		userprojection.WithContactStore(s.contacts),
+		userprojection.WithPhotoProvider(s.photos),
+		userprojection.WithPrivacyEvaluator(s.privacy),
+	)
 	return s
 }
 
@@ -202,7 +220,10 @@ func (s *Service) list(ctx context.Context, userID int64, filter domain.MessageF
 }
 
 func (s *Service) projectMessageUsers(ctx context.Context, userID int64, list domain.MessageList) (domain.MessageList, error) {
-	users, err := userprojection.ForViewer(ctx, s.contacts, userID, list.Users)
+	if s == nil || s.projector == nil {
+		return list, nil
+	}
+	users, err := s.projector.ForViewer(ctx, userID, list.Users)
 	if err != nil {
 		return domain.MessageList{}, err
 	}

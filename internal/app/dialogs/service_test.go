@@ -62,6 +62,64 @@ func TestGetDialogsIncludesChannelReadOutboxAfterOfflineRead(t *testing.T) {
 	}
 }
 
+func TestGetDialogsProjectsUsersWithCurrentProfilePhoto(t *testing.T) {
+	ctx := context.Background()
+	const ownerID int64 = 1001
+	const peerID int64 = 1002
+	dialogStore := memory.NewDialogStore()
+	if err := dialogStore.SaveList(ctx, ownerID, domain.DialogList{
+		Dialogs: []domain.Dialog{{
+			Peer:           domain.Peer{Type: domain.PeerTypeUser, ID: peerID},
+			TopMessage:     1,
+			TopMessageDate: 20,
+		}},
+		Users: []domain.User{{
+			ID:         peerID,
+			AccessHash: 22,
+			Phone:      "15550000002",
+			FirstName:  "Alice A",
+		}},
+	}); err != nil {
+		t.Fatalf("SaveList: %v", err)
+	}
+	contacts := memory.NewContactStore()
+	if _, err := contacts.Upsert(ctx, ownerID, domain.ContactInput{
+		ContactUserID: peerID,
+		Phone:         "1111",
+		FirstName:     "Alice",
+		LastName:      "Saved",
+	}); err != nil {
+		t.Fatalf("upsert contact: %v", err)
+	}
+	dialogs := NewService(dialogStore).Configure(
+		WithContactStore(contacts),
+		WithPhotoProvider(dialogProfilePhotos{
+			peerID: {PhotoID: 9201, DCID: 2, Stripped: []byte{7, 8}},
+		}),
+	)
+
+	list, err := dialogs.GetDialogs(ctx, ownerID, domain.DialogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetDialogs: %v", err)
+	}
+	peer := findDialogUser(t, list.Users, peerID)
+	if peer.PhotoID != 9201 || peer.PhotoDCID != 2 || string(peer.PhotoStripped) != string([]byte{7, 8}) {
+		t.Fatalf("dialog user photo = id %d dc %d stripped %v, want 9201/2/[7 8]", peer.PhotoID, peer.PhotoDCID, peer.PhotoStripped)
+	}
+	if !peer.Contact || peer.FirstName != "Alice" || peer.LastName != "Saved" || peer.Phone != "1111" {
+		t.Fatalf("dialog user projection = %+v, want contact view", peer)
+	}
+
+	peerList, err := dialogs.GetPeerDialogs(ctx, ownerID, []domain.Peer{{Type: domain.PeerTypeUser, ID: peerID}})
+	if err != nil {
+		t.Fatalf("GetPeerDialogs: %v", err)
+	}
+	peer = findDialogUser(t, peerList.Users, peerID)
+	if peer.PhotoID != 9201 || peer.PhotoDCID != 2 {
+		t.Fatalf("peer dialog user photo = id %d dc %d, want 9201/2", peer.PhotoID, peer.PhotoDCID)
+	}
+}
+
 func TestChannelDialogSettingsPersistThroughUnifiedDialogService(t *testing.T) {
 	ctx := context.Background()
 	channelStore := memory.NewChannelStore()
@@ -279,4 +337,27 @@ func findChannelDialog(t *testing.T, list domain.DialogList, channelID int64) do
 	}
 	t.Fatalf("channel dialog %d not found in %+v", channelID, list.Dialogs)
 	return domain.Dialog{}
+}
+
+func findDialogUser(t *testing.T, users []domain.User, userID int64) domain.User {
+	t.Helper()
+	for _, user := range users {
+		if user.ID == userID {
+			return user
+		}
+	}
+	t.Fatalf("user %d not found in %+v", userID, users)
+	return domain.User{}
+}
+
+type dialogProfilePhotos map[int64]domain.ProfilePhotoRef
+
+func (p dialogProfilePhotos) CurrentProfilePhotos(_ context.Context, _ domain.PeerType, ids []int64) (map[int64]domain.ProfilePhotoRef, error) {
+	out := make(map[int64]domain.ProfilePhotoRef, len(ids))
+	for _, id := range ids {
+		if ref, ok := p[id]; ok {
+			out[id] = ref
+		}
+	}
+	return out, nil
 }

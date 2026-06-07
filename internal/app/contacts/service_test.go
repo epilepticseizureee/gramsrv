@@ -21,7 +21,9 @@ func TestImportContactsBatchesPhonesAndDedupesUpserts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create target: %v", err)
 	}
-	svc := NewService(contactsStore, users)
+	svc := NewService(contactsStore, users).Configure(WithPhotoProvider(contactProfilePhotos{
+		target.ID: {PhotoID: 9400, DCID: 2},
+	}))
 
 	res, err := svc.ImportContacts(ctx, owner.ID, []domain.ContactInput{
 		{ClientID: 11, Phone: "+1 (555) 123-4567", FirstName: "A"},
@@ -41,6 +43,49 @@ func TestImportContactsBatchesPhonesAndDedupesUpserts(t *testing.T) {
 	}
 	if res.Contacts[0].FirstName != "Alice Final" {
 		t.Fatalf("contact first name = %q, want final input", res.Contacts[0].FirstName)
+	}
+	if res.Contacts[0].User.PhotoID != 9400 || res.Contacts[0].User.PhotoDCID != 2 {
+		t.Fatalf("imported contact photo = id %d dc %d, want 9400/2", res.Contacts[0].User.PhotoID, res.Contacts[0].User.PhotoDCID)
+	}
+}
+
+func TestGetContactsProjectsCurrentProfilePhoto(t *testing.T) {
+	ctx := context.Background()
+	users := memory.NewUserStore()
+	contactsStore := memory.NewContactStore()
+	owner, err := users.Create(ctx, domain.User{Phone: "100", FirstName: "Owner"})
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	target, err := users.Create(ctx, domain.User{Phone: "15551234567", FirstName: "Alice"})
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+	if _, err := contactsStore.Upsert(ctx, owner.ID, domain.ContactInput{
+		ContactUserID: target.ID,
+		Phone:         "1111",
+		FirstName:     "Alice",
+		LastName:      "Saved",
+	}); err != nil {
+		t.Fatalf("upsert contact: %v", err)
+	}
+	svc := NewService(contactsStore, users).Configure(WithPhotoProvider(contactProfilePhotos{
+		target.ID: {PhotoID: 9401, DCID: 2, Stripped: []byte{11, 12}},
+	}))
+
+	list, notModified, err := svc.GetContacts(ctx, owner.ID, 0)
+	if err != nil {
+		t.Fatalf("GetContacts: %v", err)
+	}
+	if notModified || len(list.Contacts) != 1 {
+		t.Fatalf("contacts notModified=%v len=%d, want one full contact", notModified, len(list.Contacts))
+	}
+	contact := list.Contacts[0]
+	if contact.User.PhotoID != 9401 || contact.User.PhotoDCID != 2 || string(contact.User.PhotoStripped) != string([]byte{11, 12}) {
+		t.Fatalf("contact user photo = id %d dc %d stripped %v, want 9401/2/[11 12]", contact.User.PhotoID, contact.User.PhotoDCID, contact.User.PhotoStripped)
+	}
+	if contact.User.FirstName != "Alice" || contact.User.LastName != "Saved" || contact.User.Phone != "1111" {
+		t.Fatalf("contact user projection = %+v, want contact name/phone", contact.User)
 	}
 }
 
@@ -129,4 +174,16 @@ func TestAcceptContactRequiresExistingContactRequest(t *testing.T) {
 	if _, err := svc.AcceptContact(ctx, alice.ID, bob.ID); !errors.Is(err, ErrContactReqMissing) {
 		t.Fatalf("AcceptContact without contact err = %v, want ErrContactReqMissing", err)
 	}
+}
+
+type contactProfilePhotos map[int64]domain.ProfilePhotoRef
+
+func (p contactProfilePhotos) CurrentProfilePhotos(_ context.Context, _ domain.PeerType, ids []int64) (map[int64]domain.ProfilePhotoRef, error) {
+	out := make(map[int64]domain.ProfilePhotoRef, len(ids))
+	for _, id := range ids {
+		if ref, ok := p[id]; ok {
+			out[id] = ref
+		}
+	}
+	return out, nil
 }

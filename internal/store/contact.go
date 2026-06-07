@@ -10,9 +10,13 @@ import (
 type ContactStore interface {
 	ListByUser(ctx context.Context, userID int64) (domain.ContactList, error)
 	Get(ctx context.Context, userID, contactUserID int64) (domain.Contact, bool, error)
+	GetMany(ctx context.Context, userID int64, contactUserIDs []int64) (map[int64]domain.Contact, error)
+	GetReverseContacts(ctx context.Context, userID int64, ownerUserIDs []int64) (map[int64]domain.Contact, error)
 	Upsert(ctx context.Context, userID int64, input domain.ContactInput) (domain.Contact, error)
 	UpsertMany(ctx context.Context, userID int64, inputs []domain.ContactInput) ([]domain.Contact, error)
 	UpdateNote(ctx context.Context, userID, contactUserID int64, note string, entities []domain.MessageEntity) (domain.Contact, bool, error)
+	SetPersonalPhoto(ctx context.Context, userID, contactUserID int64, photoID int64, date int) (domain.Contact, bool, error)
+	PersonalPhotos(ctx context.Context, userID int64, contactUserIDs []int64) (map[int64]domain.ProfilePhotoRef, error)
 	Delete(ctx context.Context, userID int64, contactUserIDs []int64) (int, error)
 	Block(ctx context.Context, userID, blockedUserID int64, date int) (bool, error)
 	Unblock(ctx context.Context, userID, blockedUserID int64) (bool, error)

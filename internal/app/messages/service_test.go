@@ -29,7 +29,10 @@ func TestServiceProjectsMessageUsersForViewerContacts(t *testing.T) {
 			{ID: strangerID, AccessHash: 33, Phone: "15550000003", FirstName: "Stranger"},
 		},
 	}}
-	svc := NewService(store, nil, WithContactStore(contacts))
+	svc := NewService(store, nil, WithContactStore(contacts), WithPhotoProvider(messageProfilePhotos{
+		friendID:   {PhotoID: 9101, DCID: 2, Stripped: []byte{5, 6}},
+		strangerID: {PhotoID: 9102, DCID: 4},
+	}))
 
 	list, err := svc.GetHistory(ctx, ownerID, domain.MessageFilter{Limit: 10})
 	if err != nil {
@@ -39,9 +42,15 @@ func TestServiceProjectsMessageUsersForViewerContacts(t *testing.T) {
 	if !friend.Contact || friend.FirstName != "Remark" || friend.LastName != "Friend" || friend.Phone != "15550000002" {
 		t.Fatalf("friend projection = %+v, want contact remark and phone", friend)
 	}
+	if friend.PhotoID != 9101 || friend.PhotoDCID != 2 || string(friend.PhotoStripped) != string([]byte{5, 6}) {
+		t.Fatalf("friend photo = id %d dc %d stripped %v, want 9101/2/[5 6]", friend.PhotoID, friend.PhotoDCID, friend.PhotoStripped)
+	}
 	stranger := findUser(t, list.Users, strangerID)
 	if stranger.Contact || stranger.Phone != "" || stranger.FirstName != "Stranger" {
 		t.Fatalf("stranger projection = %+v, want non-contact with hidden phone", stranger)
+	}
+	if stranger.PhotoID != 9102 || stranger.PhotoDCID != 4 {
+		t.Fatalf("stranger photo = id %d dc %d, want 9102/4", stranger.PhotoID, stranger.PhotoDCID)
 	}
 	self := findUser(t, list.Users, ownerID)
 	if self.Phone != "15550000001" {
@@ -62,6 +71,18 @@ func findUser(t *testing.T, users []domain.User, id int64) domain.User {
 
 type projectionMessageStore struct {
 	list domain.MessageList
+}
+
+type messageProfilePhotos map[int64]domain.ProfilePhotoRef
+
+func (p messageProfilePhotos) CurrentProfilePhotos(_ context.Context, _ domain.PeerType, ids []int64) (map[int64]domain.ProfilePhotoRef, error) {
+	out := make(map[int64]domain.ProfilePhotoRef, len(ids))
+	for _, id := range ids {
+		if ref, ok := p[id]; ok {
+			out[id] = ref
+		}
+	}
+	return out, nil
 }
 
 func (s projectionMessageStore) Create(context.Context, domain.Message) (domain.Message, error) {

@@ -59,6 +59,98 @@ func (s *ContactStore) Get(ctx context.Context, userID, contactUserID int64) (do
 	return contact, true, nil
 }
 
+func (s *ContactStore) GetMany(ctx context.Context, userID int64, contactUserIDs []int64) (map[int64]domain.Contact, error) {
+	out := make(map[int64]domain.Contact, len(contactUserIDs))
+	if userID == 0 || len(contactUserIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.Query(ctx, `
+SELECT
+  c.contact_user_id,
+  c.mutual,
+  c.contact_phone,
+  c.contact_first_name,
+  c.contact_last_name,
+  c.note,
+  COALESCE(c.note_entities::text, '[]')::text AS note_entities_json,
+  u.id,
+  u.access_hash,
+  COALESCE(NULLIF(c.contact_phone, ''), u.phone)::text AS phone,
+  COALESCE(NULLIF(c.contact_first_name, ''), u.first_name)::text AS first_name,
+  COALESCE(c.contact_last_name, u.last_name)::text AS last_name,
+  u.username,
+  u.country_code,
+  u.verified,
+  u.support,
+  u.last_seen_at
+FROM contacts c
+JOIN users u ON u.id = c.contact_user_id
+WHERE c.user_id = $1
+  AND c.contact_user_id = ANY($2::bigint[])
+`, userID, contactUserIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get contacts many: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		contact, err := scanContactRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[contact.User.ID] = contact
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *ContactStore) GetReverseContacts(ctx context.Context, userID int64, ownerUserIDs []int64) (map[int64]domain.Contact, error) {
+	out := make(map[int64]domain.Contact, len(ownerUserIDs))
+	if userID == 0 || len(ownerUserIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.Query(ctx, `
+SELECT
+  c.user_id AS owner_user_id,
+  c.mutual,
+  c.contact_phone,
+  c.contact_first_name,
+  c.contact_last_name,
+  c.note,
+  COALESCE(c.note_entities::text, '[]')::text AS note_entities_json,
+  u.id,
+  u.access_hash,
+  COALESCE(NULLIF(c.contact_phone, ''), u.phone)::text AS phone,
+  COALESCE(NULLIF(c.contact_first_name, ''), u.first_name)::text AS first_name,
+  COALESCE(c.contact_last_name, u.last_name)::text AS last_name,
+  u.username,
+  u.country_code,
+  u.verified,
+  u.support,
+  u.last_seen_at
+FROM contacts c
+JOIN users u ON u.id = c.contact_user_id
+WHERE c.contact_user_id = $1
+  AND c.user_id = ANY($2::bigint[])
+`, userID, ownerUserIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get reverse contacts: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		ownerID, contact, err := scanReverseContactRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[ownerID] = contact
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *ContactStore) Upsert(ctx context.Context, userID int64, input domain.ContactInput) (domain.Contact, error) {
 	entities, err := encodeMessageEntities(input.NoteEntities)
 	if err != nil {
@@ -295,6 +387,70 @@ func (s *ContactStore) UpdateNote(ctx context.Context, userID, contactUserID int
 	return contact, true, nil
 }
 
+func (s *ContactStore) SetPersonalPhoto(ctx context.Context, userID, contactUserID int64, photoID int64, date int) (domain.Contact, bool, error) {
+	tag, err := s.db.Exec(ctx, `
+UPDATE contacts
+SET personal_photo_id = $3,
+    personal_photo_date = CASE WHEN $3::bigint = 0 THEN 0 ELSE $4::int END,
+    updated_at = now()
+WHERE user_id = $1
+  AND contact_user_id = $2
+`, userID, contactUserID, photoID, date)
+	if err != nil {
+		return domain.Contact{}, false, fmt.Errorf("set contact personal photo: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Contact{}, false, nil
+	}
+	contact, found, err := s.Get(ctx, userID, contactUserID)
+	return contact, found, err
+}
+
+func (s *ContactStore) PersonalPhotos(ctx context.Context, userID int64, contactUserIDs []int64) (map[int64]domain.ProfilePhotoRef, error) {
+	out := make(map[int64]domain.ProfilePhotoRef, len(contactUserIDs))
+	if userID == 0 || len(contactUserIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.Query(ctx, `
+SELECT
+  c.contact_user_id,
+  c.personal_photo_id,
+  ph.dc_id,
+  ph.sizes::text AS sizes_json
+FROM contacts c
+JOIN photos ph ON ph.id = c.personal_photo_id
+WHERE c.user_id = $1
+  AND c.contact_user_id = ANY($2::bigint[])
+  AND c.personal_photo_id <> 0
+`, userID, contactUserIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list contact personal photos: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var contactUserID, photoID int64
+		var dcID int32
+		var sizesJSON string
+		if err := rows.Scan(&contactUserID, &photoID, &dcID, &sizesJSON); err != nil {
+			return nil, err
+		}
+		sizes, err := decodePhotoSizes(sizesJSON)
+		if err != nil {
+			return nil, err
+		}
+		out[contactUserID] = domain.ProfilePhotoRef{
+			PhotoID:  photoID,
+			DCID:     int(dcID),
+			Stripped: domain.StrippedFromSizes(sizes),
+			Personal: true,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *ContactStore) Delete(ctx context.Context, userID int64, contactUserIDs []int64) (int, error) {
 	if len(contactUserIDs) == 0 {
 		return 0, nil
@@ -364,6 +520,107 @@ func contactFromFields(id, accessHash int64, phone, firstName, lastName, usernam
 		NoteEntities: noteEntities,
 		Mutual:       mutual,
 	}
+}
+
+type contactScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanContactRows(row contactScanner) (domain.Contact, error) {
+	var (
+		contactUserID    int64
+		mutual           bool
+		contactPhone     string
+		contactFirstName string
+		contactLastName  string
+		note             string
+		noteEntitiesJSON string
+		id               int64
+		accessHash       int64
+		phone            string
+		firstName        string
+		lastName         string
+		username         string
+		countryCode      string
+		verified         bool
+		support          bool
+		lastSeenAt       int32
+	)
+	if err := row.Scan(
+		&contactUserID,
+		&mutual,
+		&contactPhone,
+		&contactFirstName,
+		&contactLastName,
+		&note,
+		&noteEntitiesJSON,
+		&id,
+		&accessHash,
+		&phone,
+		&firstName,
+		&lastName,
+		&username,
+		&countryCode,
+		&verified,
+		&support,
+		&lastSeenAt,
+	); err != nil {
+		return domain.Contact{}, err
+	}
+	entities, err := decodeMessageEntities(noteEntitiesJSON)
+	if err != nil {
+		return domain.Contact{}, err
+	}
+	return contactFromFields(id, accessHash, phone, firstName, lastName, username, countryCode, verified, support, int(lastSeenAt), contactFirstName, contactLastName, contactPhone, note, entities, mutual), nil
+}
+
+func scanReverseContactRows(row contactScanner) (int64, domain.Contact, error) {
+	var (
+		ownerUserID      int64
+		mutual           bool
+		contactPhone     string
+		contactFirstName string
+		contactLastName  string
+		note             string
+		noteEntitiesJSON string
+		id               int64
+		accessHash       int64
+		phone            string
+		firstName        string
+		lastName         string
+		username         string
+		countryCode      string
+		verified         bool
+		support          bool
+		lastSeenAt       int32
+	)
+	if err := row.Scan(
+		&ownerUserID,
+		&mutual,
+		&contactPhone,
+		&contactFirstName,
+		&contactLastName,
+		&note,
+		&noteEntitiesJSON,
+		&id,
+		&accessHash,
+		&phone,
+		&firstName,
+		&lastName,
+		&username,
+		&countryCode,
+		&verified,
+		&support,
+		&lastSeenAt,
+	); err != nil {
+		return 0, domain.Contact{}, err
+	}
+	entities, err := decodeMessageEntities(noteEntitiesJSON)
+	if err != nil {
+		return 0, domain.Contact{}, err
+	}
+	contact := contactFromFields(id, accessHash, phone, firstName, lastName, username, countryCode, verified, support, int(lastSeenAt), contactFirstName, contactLastName, contactPhone, note, entities, mutual)
+	return ownerUserID, contact, nil
 }
 
 func (s *ContactStore) Block(ctx context.Context, userID, blockedUserID int64, date int) (bool, error) {
