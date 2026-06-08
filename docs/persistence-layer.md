@@ -52,8 +52,8 @@ DDL 见 [`deploy/migrations/0001_init.up.sql`](../deploy/migrations/0001_init.up
 
 - **`auth_keys`** —— 密钥交换产物。`auth_key_id`(BIGINT，SHA1 低 64 位小端 int64) + `body`(256B BYTEA) + `server_salt`。
 - **`users`** —— 登录链路必须字段：`id` / `access_hash` / `phone`(UNIQUE) / `first_name` / `last_name` / `username` / `about` / `country_code` / `verified` / `support`。`access_hash` 为任何 `InputUser` 校验所必须，不可省；普通注册用户 ID 从 `1780243200`（2026-06-01 00:00:00 Asia/Shanghai 的 Unix 秒级时间戳）起递增，内置 777000 官方系统账号显式保留在低位区间。注册页只写手机号与姓名，后续 Settings/Profile 通过 `account.updateProfile` 更新姓名与 bio。
-- **`authorizations`** —— `auth_key ↔ user` 绑定 + 设备信息（`layer` / `device_model` / `app_version` / `api_id` …）。PK 为 `auth_key_id`（一个 auth_key 一条授权），外键挂 `auth_keys` 与 `users`。
-- **`account_passwords`** —— 账号 2FA/SRP 配置。第一阶段默认 `has_password=false`，但 `account.getPassword` 已走持久化查询。
+- **`authorizations`** —— `auth_key ↔ user` 绑定 + 设备信息（`layer` / `device_model` / `app_version` / `api_id` …）。PK 为 `auth_key_id`（一个 auth_key 一条授权），外键挂 `auth_keys` 与 `users`；`hash` 是 `account.getAuthorizations/resetAuthorization` 对外稳定设备句柄，按 `(user_id, hash)` 唯一，reset 时只允许删除当前账号自己的授权。
+- **`account_passwords`** —— 账号 2FA/SRP 配置。保存 Layer225 Telegram SRP 所需的 `current_algo_salt1/current_algo_salt2/current_algo_g/current_algo_p`、`srp_id`、`srp_verifier`、当前 challenge 的 `srp_b_secret/srp_b`、hint、恢复邮箱与开发恢复码状态；`account.getPassword` 会轮换 challenge，`account.updatePasswordSettings/auth.checkPassword/auth.recoverPassword` 都按 SRP 校验。`pending_reset_date` 表示无恢复邮箱密码重置等待期，`account.declinePasswordReset` 会清除它。
 - **`temp_auth_key_bindings`** —— `auth.bindTempAuthKey` 的 temp→perm 绑定记录。写入前校验 encrypted `bind_auth_key_inner`，持久化 `temp_session_id`，后续 temp auth_key RPC 在 router 入口解析为 perm auth_key 身份，并缓存在 active session 上。
 - **`app_configs`** —— `help.getAppConfig` 的 data-backed JSON config，包含 TDesktop read mark、quote reply 与 native anti-spam 管理入口所需参数。
 - **`countries` / `country_codes`** —— `help.getCountriesList` 的登录页国家区号目录。
