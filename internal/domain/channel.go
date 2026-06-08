@@ -347,6 +347,7 @@ type ChannelMessage struct {
 	Reactions    *ChannelMessageReactions
 	Action       *ChannelMessageAction
 	Media        *MessageMedia
+	Pinned       bool
 	Mentioned    bool
 	MediaUnread  bool
 	Pts          int
@@ -1377,6 +1378,7 @@ type ChannelHistoryFilter struct {
 	ChannelID    int64
 	Query        string
 	SenderUserID int64
+	PinnedOnly   bool
 	OffsetID     int
 	OffsetDate   int
 	AddOffset    int

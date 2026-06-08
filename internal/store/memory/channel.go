@@ -3133,6 +3133,9 @@ func (s *ChannelStore) ListChannelHistory(_ context.Context, viewerUserID int64,
 		if msg.ID <= member.AvailableMinID {
 			continue
 		}
+		if filter.PinnedOnly && msg.ID != channel.PinnedMessageID {
+			continue
+		}
 		if query != "" && !strings.Contains(strings.ToLower(msg.Body), query) {
 			continue
 		}
@@ -3159,7 +3162,9 @@ func (s *ChannelStore) ListChannelHistory(_ context.Context, viewerUserID int64,
 		}
 		matched++
 		if len(out) < limit {
-			out = append(out, cloneChannelMessage(msg))
+			item := cloneChannelMessage(msg)
+			item.Pinned = channel.PinnedMessageID != 0 && item.ID == channel.PinnedMessageID
+			out = append(out, item)
 		}
 	}
 	s.populateChannelMessageRepliesLocked(viewerUserID, filter.ChannelID, out)
@@ -3402,7 +3407,9 @@ func (s *ChannelStore) GetChannelMessages(_ context.Context, viewerUserID, chann
 		if msg.Deleted || msg.ID <= member.AvailableMinID {
 			continue
 		}
-		messages = append(messages, cloneChannelMessage(msg))
+		item := cloneChannelMessage(msg)
+		item.Pinned = channel.PinnedMessageID != 0 && item.ID == channel.PinnedMessageID
+		messages = append(messages, item)
 	}
 	sort.Slice(messages, func(i, j int) bool { return messages[i].ID > messages[j].ID })
 	s.populateChannelMessageRepliesLocked(viewerUserID, channelID, messages)

@@ -4435,6 +4435,13 @@ func (s *ChannelStore) ListChannelHistory(ctx context.Context, viewerUserID int6
 		baseArgs = append(baseArgs, member.AvailableMinID)
 		base += fmt.Sprintf(" AND id > $%d", len(baseArgs))
 	}
+	if filter.PinnedOnly {
+		if channel.PinnedMessageID <= 0 {
+			return domain.ChannelHistory{Channel: channel, Self: member}, nil
+		}
+		baseArgs = append(baseArgs, channel.PinnedMessageID)
+		base += fmt.Sprintf(" AND id = $%d", len(baseArgs))
+	}
 	if filter.Query != "" {
 		baseArgs = append(baseArgs, filter.Query)
 		base += fmt.Sprintf(" AND body ILIKE '%%' || $%d || '%%'", len(baseArgs))
@@ -4577,6 +4584,7 @@ func (s *ChannelStore) ListChannelHistory(ctx context.Context, viewerUserID int6
 		}
 		out.Messages = older
 	}
+	markPinnedChannelMessages(channel, out.Messages)
 	out.Count = len(out.Messages)
 	if hasMoreOlder {
 		out.Count = len(out.Messages) + 1
@@ -4830,6 +4838,7 @@ ORDER BY id DESC`, args...)
 	if err := rows.Err(); err != nil {
 		return domain.ChannelHistory{}, err
 	}
+	markPinnedChannelMessages(channel, out.Messages)
 	out.Count = len(out.Messages)
 	if err := s.populateChannelMessageReplies(ctx, s.db, viewerUserID, channel, out.Messages); err != nil {
 		return domain.ChannelHistory{}, err
@@ -4838,6 +4847,17 @@ ORDER BY id DESC`, args...)
 		return domain.ChannelHistory{}, err
 	}
 	return out, nil
+}
+
+func markPinnedChannelMessages(channel domain.Channel, messages []domain.ChannelMessage) {
+	if channel.PinnedMessageID <= 0 {
+		return
+	}
+	for i := range messages {
+		if messages[i].ChannelID == channel.ID && messages[i].ID == channel.PinnedMessageID {
+			messages[i].Pinned = true
+		}
+	}
 }
 
 func (s *ChannelStore) ReadChannelMessageContents(ctx context.Context, req domain.ReadChannelMessageContentsRequest) (domain.ReadChannelMessageContentsResult, error) {

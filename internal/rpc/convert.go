@@ -1042,6 +1042,9 @@ func tgChannelMessage(viewerUserID int64, m domain.ChannelMessage) tg.MessageCla
 		Message:     m.Body,
 		Entities:    tgMessageEntities(m.Entities),
 	}
+	if m.Pinned {
+		msg.SetPinned(true)
+	}
 	if m.EditDate != 0 {
 		msg.SetEditDate(m.EditDate)
 	}

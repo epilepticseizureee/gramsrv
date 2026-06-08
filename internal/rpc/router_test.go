@@ -2723,6 +2723,7 @@ func TestMessagesSearchChannelPeerReturnsSingleCopyMessages(t *testing.T) {
 		t.Fatalf("create chat: %v", err)
 	}
 	channel := created.Updates.(*tg.Updates).Chats[0].(*tg.Channel)
+	pinnedMsgID := 0
 	for _, item := range []struct {
 		userID int64
 		text   string
@@ -2732,12 +2733,20 @@ func TestMessagesSearchChannelPeerReturnsSingleCopyMessages(t *testing.T) {
 		{friend.ID, "not this one", 5002},
 		{friend.ID, "needle from friend", 5003},
 	} {
-		if _, err := r.onMessagesSendMessage(WithUserID(ctx, item.userID), &tg.MessagesSendMessageRequest{
+		sent, err := r.onMessagesSendMessage(WithUserID(ctx, item.userID), &tg.MessagesSendMessageRequest{
 			Peer:     &tg.InputPeerChannel{ChannelID: channel.ID, AccessHash: channel.AccessHash},
 			Message:  item.text,
 			RandomID: item.random,
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("send %q: %v", item.text, err)
+		}
+		if item.text == "not this one" {
+			channelUpdates := sent.(*tg.Updates)
+			if len(channelUpdates.Updates) == 0 {
+				t.Fatalf("send %q updates = %+v, want updateMessageID", item.text, channelUpdates.Updates)
+			}
+			pinnedMsgID = channelUpdates.Updates[0].(*tg.UpdateMessageID).ID
 		}
 	}
 
@@ -2803,6 +2812,34 @@ func TestMessagesSearchChannelPeerReturnsSingleCopyMessages(t *testing.T) {
 	}
 	if channelMessages.Count != 0 || len(channelMessages.Messages) != 0 {
 		t.Fatalf("shared media count search = count %d messages %d, want empty without media store", channelMessages.Count, len(channelMessages.Messages))
+	}
+
+	if _, err := r.onMessagesUpdatePinnedMessage(WithUserID(ctx, owner.ID), &tg.MessagesUpdatePinnedMessageRequest{
+		Peer: &tg.InputPeerChannel{ChannelID: channel.ID, AccessHash: channel.AccessHash},
+		ID:   pinnedMsgID,
+	}); err != nil {
+		t.Fatalf("pin channel message: %v", err)
+	}
+	pinnedReq := &tg.MessagesSearchRequest{
+		Peer:   &tg.InputPeerChannel{ChannelID: channel.ID, AccessHash: channel.AccessHash},
+		Filter: &tg.InputMessagesFilterPinned{},
+		Limit:  40,
+	}
+	in.Reset()
+	if err := pinnedReq.Encode(&in); err != nil {
+		t.Fatalf("encode pinned search: %v", err)
+	}
+	enc, err = r.Dispatch(WithUserID(ctx, friend.ID), [8]byte{}, 0, &in)
+	if err != nil {
+		t.Fatalf("dispatch pinned search: %v", err)
+	}
+	pinnedMessages, _, _ := searchMessagesPayload(t, enc)
+	if len(pinnedMessages) != 1 {
+		t.Fatalf("pinned search returned %d messages, want 1", len(pinnedMessages))
+	}
+	pinnedMessage, ok := pinnedMessages[0].(*tg.Message)
+	if !ok || pinnedMessage.ID != pinnedMsgID || !pinnedMessage.GetPinned() {
+		t.Fatalf("pinned search message = %#v, want pinned message id=%d", pinnedMessages[0], pinnedMsgID)
 	}
 }
 

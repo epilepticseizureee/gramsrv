@@ -453,6 +453,12 @@ func (r *Router) registerMessages(d *tg.ServerDispatcher) {
 			}
 			return tgChannelHistoryMessages(userID, history), nil
 		}
+		if _, ok := req.Filter.(*tg.InputMessagesFilterPinned); ok {
+			if _, err := r.checkedDomainPeerFromInputPeer(ctx, userID, req.Peer); err != nil {
+				return nil, err
+			}
+			return &tg.MessagesMessages{}, nil
+		}
 		if r.deps.Messages == nil {
 			return messagesNotModifiedOrEmpty(req.Hash), nil
 		}
@@ -5746,16 +5752,17 @@ func (r *Router) channelHistoryFilterFromSearchRequest(userID int64, req *tg.Mes
 		limit = 100
 	}
 	filter := domain.ChannelHistoryFilter{
-		ChannelID: channelID,
-		Query:     req.Q,
-		OffsetID:  req.OffsetID,
-		AddOffset: domain.ClampMessageHistoryAddOffset(req.AddOffset),
-		Limit:     limit,
-		MinDate:   req.MinDate,
-		MaxDate:   req.MaxDate,
-		MaxID:     req.MaxID,
-		MinID:     req.MinID,
-		Hash:      req.Hash,
+		ChannelID:  channelID,
+		Query:      req.Q,
+		PinnedOnly: messagesSearchFilterPinned(req.Filter),
+		OffsetID:   req.OffsetID,
+		AddOffset:  domain.ClampMessageHistoryAddOffset(req.AddOffset),
+		Limit:      limit,
+		MinDate:    req.MinDate,
+		MaxDate:    req.MaxDate,
+		MaxID:      req.MaxID,
+		MinID:      req.MinID,
+		Hash:       req.Hash,
 	}
 	if req.FromID != nil {
 		from, ok := r.domainPeerFromInputPeer(userID, req.FromID)
@@ -5765,6 +5772,11 @@ func (r *Router) channelHistoryFilterFromSearchRequest(userID int64, req *tg.Mes
 		filter.SenderUserID = from.ID
 	}
 	return filter, true
+}
+
+func messagesSearchFilterPinned(filter tg.MessagesFilterClass) bool {
+	_, ok := filter.(*tg.InputMessagesFilterPinned)
+	return ok
 }
 
 func searchFilterNeedsMediaStore(filter tg.MessagesFilterClass) bool {
