@@ -403,11 +403,19 @@ func TestTDesktopStartupRPCsEncode(t *testing.T) {
 		{name: "help.getPremiumPromo", req: &tg.HelpGetPremiumPromoRequest{}},
 		{name: "account.getPassword", req: &tg.AccountGetPasswordRequest{}},
 		{name: "account.getNotifySettings", req: &tg.AccountGetNotifySettingsRequest{Peer: &tg.InputNotifyUsers{}}},
+		{name: "account.resetNotifySettings", req: &tg.AccountResetNotifySettingsRequest{}},
 		{name: "account.getPrivacy", req: &tg.AccountGetPrivacyRequest{Key: &tg.InputPrivacyKeyStatusTimestamp{}}},
 		{name: "account.getAuthorizations", req: &tg.AccountGetAuthorizationsRequest{}},
+		{name: "account.getWebAuthorizations", req: &tg.AccountGetWebAuthorizationsRequest{}},
+		{name: "account.getNotifyExceptions", req: &tg.AccountGetNotifyExceptionsRequest{}},
 		{name: "account.getDefaultEmojiStatuses", req: &tg.AccountGetDefaultEmojiStatusesRequest{}},
+		{name: "account.getRecentEmojiStatuses", req: &tg.AccountGetRecentEmojiStatusesRequest{}},
 		{name: "account.getCollectibleEmojiStatuses", req: &tg.AccountGetCollectibleEmojiStatusesRequest{}},
+		{name: "account.getDefaultProfilePhotoEmojis", req: &tg.AccountGetDefaultProfilePhotoEmojisRequest{}},
 		{name: "account.getDefaultGroupPhotoEmojis", req: &tg.AccountGetDefaultGroupPhotoEmojisRequest{}},
+		{name: "account.getDefaultBackgroundEmojis", req: &tg.AccountGetDefaultBackgroundEmojisRequest{}},
+		{name: "account.getChannelDefaultEmojiStatuses", req: &tg.AccountGetChannelDefaultEmojiStatusesRequest{}},
+		{name: "account.getChannelRestrictedStatusEmojis", req: &tg.AccountGetChannelRestrictedStatusEmojisRequest{}},
 		{name: "account.getConnectedBots", req: &tg.AccountGetConnectedBotsRequest{}},
 		{name: "account.getReactionsNotifySettings", req: &tg.AccountGetReactionsNotifySettingsRequest{}},
 		{name: "account.getContactSignUpNotification", req: &tg.AccountGetContactSignUpNotificationRequest{}},
@@ -415,7 +423,9 @@ func TestTDesktopStartupRPCsEncode(t *testing.T) {
 		{name: "account.getContentSettings", req: &tg.AccountGetContentSettingsRequest{}},
 		{name: "account.getGlobalPrivacySettings", req: &tg.AccountGetGlobalPrivacySettingsRequest{}},
 		{name: "account.getPasskeys", req: &tg.AccountGetPasskeysRequest{}},
+		{name: "account.getAutoDownloadSettings", req: &tg.AccountGetAutoDownloadSettingsRequest{}},
 		{name: "account.getSavedMusicIds", req: &tg.AccountGetSavedMusicIDsRequest{}},
+		{name: "account.resetPassword", req: &tg.AccountResetPasswordRequest{}},
 		{name: "account.updateStatus", req: &tg.AccountUpdateStatusRequest{Offline: true}},
 		{name: "updates.getDifference", req: &tg.UpdatesGetDifferenceRequest{}},
 		{name: "users.getFullUser", req: &tg.UsersGetFullUserRequest{ID: &tg.InputUserSelf{}}},
@@ -9401,6 +9411,14 @@ func (s *blockingUserAuthService) SendCode(context.Context, string) (string, err
 	return "", nil
 }
 
+func (s *blockingUserAuthService) ResendCode(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+func (s *blockingUserAuthService) CancelCode(context.Context, string, string) error {
+	return nil
+}
+
 func (s *blockingUserAuthService) SignIn(context.Context, domain.Authorization, string, string, string) (domain.User, domain.Message, bool, error) {
 	return domain.User{}, domain.Message{}, false, nil
 }
@@ -9411,6 +9429,18 @@ func (s *blockingUserAuthService) SignUp(context.Context, domain.Authorization, 
 
 func (s *blockingUserAuthService) LogOut(context.Context, [8]byte) error {
 	return nil
+}
+
+func (s *blockingUserAuthService) ListAuthorizations(context.Context, int64) ([]domain.Authorization, error) {
+	return nil, nil
+}
+
+func (s *blockingUserAuthService) ResetAuthorization(context.Context, int64, int64) (domain.Authorization, bool, error) {
+	return domain.Authorization{}, false, nil
+}
+
+func (s *blockingUserAuthService) ResetAuthorizations(context.Context, int64, [8]byte) ([]domain.Authorization, error) {
+	return nil, nil
 }
 
 func (s *captureAuthService) BindTempAuthKey(context.Context, int64, domain.TempAuthKeyBinding) error {
@@ -9431,6 +9461,14 @@ func (s *captureAuthService) SendCode(context.Context, string) (string, error) {
 	return "", nil
 }
 
+func (s *captureAuthService) ResendCode(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+func (s *captureAuthService) CancelCode(context.Context, string, string) error {
+	return nil
+}
+
 func (s *captureAuthService) SignIn(context.Context, domain.Authorization, string, string, string) (domain.User, domain.Message, bool, error) {
 	if s.signInUser.ID != 0 {
 		return s.signInUser, domain.Message{}, false, nil
@@ -9445,6 +9483,18 @@ func (s *captureAuthService) SignUp(context.Context, domain.Authorization, strin
 func (s *captureAuthService) LogOut(_ context.Context, authKeyID [8]byte) error {
 	s.loggedOutAuthKeyID = authKeyID
 	return nil
+}
+
+func (s *captureAuthService) ListAuthorizations(context.Context, int64) ([]domain.Authorization, error) {
+	return nil, nil
+}
+
+func (s *captureAuthService) ResetAuthorization(context.Context, int64, int64) (domain.Authorization, bool, error) {
+	return domain.Authorization{}, false, nil
+}
+
+func (s *captureAuthService) ResetAuthorizations(context.Context, int64, [8]byte) ([]domain.Authorization, error) {
+	return nil, nil
 }
 
 func (s staticUsersService) Self(context.Context, int64) (domain.User, error) {

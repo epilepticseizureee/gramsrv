@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,10 +26,28 @@ const loginMessagePushDelay = 2 * time.Second
 func (r *Router) registerAuth(d *tg.ServerDispatcher) {
 	d.OnAuthBindTempAuthKey(r.onAuthBindTempAuthKey)
 	d.OnAuthExportLoginToken(r.onAuthExportLoginToken)
+	d.OnAuthImportLoginToken(r.onAuthImportLoginToken)
+	d.OnAuthAcceptLoginToken(r.onAuthAcceptLoginToken)
+	d.OnAuthExportAuthorization(func(ctx context.Context, dcid int) (*tg.AuthExportedAuthorization, error) {
+		return nil, dcIDInvalidErr()
+	})
+	d.OnAuthImportAuthorization(func(ctx context.Context, req *tg.AuthImportAuthorizationRequest) (tg.AuthAuthorizationClass, error) {
+		return nil, dcIDInvalidErr()
+	})
+	d.OnAuthDropTempAuthKeys(func(ctx context.Context, exceptauthkeys []int64) (bool, error) {
+		return true, nil
+	})
 	d.OnAuthSendCode(r.onAuthSendCode)
+	d.OnAuthResendCode(r.onAuthResendCode)
+	d.OnAuthCancelCode(r.onAuthCancelCode)
 	d.OnAuthSignIn(r.onAuthSignIn)
 	d.OnAuthSignUp(r.onAuthSignUp)
 	d.OnAuthLogOut(r.onAuthLogOut)
+	d.OnAuthResetAuthorizations(r.onAuthResetAuthorizations)
+	d.OnAuthCheckPassword(r.onAuthCheckPassword)
+	d.OnAuthRequestPasswordRecovery(r.onAuthRequestPasswordRecovery)
+	d.OnAuthRecoverPassword(r.onAuthRecoverPassword)
+	d.OnAuthCheckRecoveryPassword(r.onAuthCheckRecoveryPassword)
 }
 
 // onAuthBindTempAuthKey 记录 TDesktop 的 PFS temp→perm auth key 绑定。
@@ -69,22 +88,45 @@ func (r *Router) onAuthExportLoginToken(ctx context.Context, _ *tg.AuthExportLog
 	return tdesktop.LoginToken(r.clock.Now(), id, sessionID), nil
 }
 
+func (r *Router) onAuthImportLoginToken(ctx context.Context, token []byte) (tg.AuthLoginTokenClass, error) {
+	id, _ := AuthKeyIDFrom(ctx)
+	sessionID, _ := SessionIDFrom(ctx)
+	return tdesktop.LoginToken(r.clock.Now(), id, sessionID), nil
+}
+
+func (r *Router) onAuthAcceptLoginToken(ctx context.Context, token []byte) (*tg.Authorization, error) {
+	return nil, authTokenInvalidErr()
+}
+
 // onAuthSendCode 处理 auth.sendCode：生成 phone_code_hash 并返回 sentCode。
 func (r *Router) onAuthSendCode(ctx context.Context, req *tg.AuthSendCodeRequest) (tg.AuthSentCodeClass, error) {
 	hash, err := r.deps.Auth.SendCode(ctx, req.PhoneNumber)
 	if err != nil {
 		return nil, internalErr()
 	}
+	return tgSentCode(hash), nil
+}
+
+func tgSentCode(hash string) tg.AuthSentCodeClass {
 	return &tg.AuthSentCode{
 		Type:          &tg.AuthSentCodeTypeApp{Length: devCodeLength},
 		PhoneCodeHash: hash,
-	}, nil
+	}
 }
 
 // onAuthSignIn 处理 auth.signIn：校验验证码；用户不存在时返回 SignUpRequired。
 func (r *Router) onAuthSignIn(ctx context.Context, req *tg.AuthSignInRequest) (tg.AuthAuthorizationClass, error) {
 	u, loginMessage, needSignUp, err := r.deps.Auth.SignIn(ctx, r.authzFromCtx(ctx), req.PhoneNumber, req.PhoneCodeHash, req.PhoneCode)
 	if err != nil {
+		if errors.Is(err, domain.ErrSessionPasswordNeeded) && u.ID != 0 {
+			if err := r.clearAuthKeyStateOnUserChange(ctx, u.ID); err != nil {
+				return nil, internalErr()
+			}
+			if id, ok := AuthKeyIDFrom(ctx); ok {
+				r.setAuthUserCache(id, u.ID, true)
+			}
+			r.bindSessionUser(ctx, u.ID)
+		}
 		return nil, signInErr(err)
 	}
 	if needSignUp {
@@ -100,6 +142,103 @@ func (r *Router) onAuthSignIn(ctx context.Context, req *tg.AuthSignInRequest) (t
 	r.recordAndScheduleLoginMessagePush(ctx, loginMessage)
 	r.pushSignInServiceNotificationToOthers(ctx, u)
 	return &tg.AuthAuthorization{User: r.tgSelfUser(u)}, nil
+}
+
+func (r *Router) onAuthResendCode(ctx context.Context, req *tg.AuthResendCodeRequest) (tg.AuthSentCodeClass, error) {
+	hash, err := r.deps.Auth.ResendCode(ctx, req.PhoneNumber, req.PhoneCodeHash)
+	if err != nil {
+		return nil, signInErr(err)
+	}
+	return tgSentCode(hash), nil
+}
+
+func (r *Router) onAuthCancelCode(ctx context.Context, req *tg.AuthCancelCodeRequest) (bool, error) {
+	if err := r.deps.Auth.CancelCode(ctx, req.PhoneNumber, req.PhoneCodeHash); err != nil {
+		return false, signInErr(err)
+	}
+	return true, nil
+}
+
+func (r *Router) onAuthResetAuthorizations(ctx context.Context) (bool, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return false, internalErr()
+	}
+	authKeyID, _ := AuthKeyIDFrom(ctx)
+	deleted, err := r.deps.Auth.ResetAuthorizations(ctx, userID, authKeyID)
+	if err != nil {
+		return false, internalErr()
+	}
+	for _, a := range deleted {
+		r.invalidateAuthUserCache(a.AuthKeyID)
+		r.unbindAuthKey(a.AuthKeyID)
+		_ = r.clearAuthKeyState(ctx, a.AuthKeyID)
+	}
+	return true, nil
+}
+
+func (r *Router) onAuthCheckPassword(ctx context.Context, password tg.InputCheckPasswordSRPClass) (tg.AuthAuthorizationClass, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return nil, internalErr()
+	}
+	if r.deps.Account == nil {
+		return nil, passwordHashInvalidErr()
+	}
+	if err := r.deps.Account.CheckPassword(ctx, userID, domainPasswordCheck(password)); err != nil {
+		return nil, passwordErr(err)
+	}
+	u, err := r.deps.Users.Self(ctx, userID)
+	if err != nil {
+		return nil, internalErr()
+	}
+	return &tg.AuthAuthorization{User: r.tgSelfUser(u)}, nil
+}
+
+func (r *Router) onAuthRequestPasswordRecovery(ctx context.Context) (*tg.AuthPasswordRecovery, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return nil, internalErr()
+	}
+	pattern, err := r.deps.Account.RequestPasswordRecovery(ctx, userID)
+	if err != nil {
+		return nil, passwordErr(err)
+	}
+	return &tg.AuthPasswordRecovery{EmailPattern: pattern}, nil
+}
+
+func (r *Router) onAuthRecoverPassword(ctx context.Context, req *tg.AuthRecoverPasswordRequest) (tg.AuthAuthorizationClass, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return nil, internalErr()
+	}
+	var input *domain.PasswordInputSettings
+	if settings, ok := req.GetNewSettings(); ok {
+		converted, err := domainPasswordInputSettings(settings)
+		if err != nil {
+			return nil, err
+		}
+		input = &converted
+	}
+	if err := r.deps.Account.RecoverPassword(ctx, userID, req.Code, input); err != nil {
+		return nil, passwordErr(err)
+	}
+	u, err := r.deps.Users.Self(ctx, userID)
+	if err != nil {
+		return nil, internalErr()
+	}
+	return &tg.AuthAuthorization{User: r.tgSelfUser(u)}, nil
+}
+
+func (r *Router) onAuthCheckRecoveryPassword(ctx context.Context, code string) (bool, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return false, internalErr()
+	}
+	if err := r.deps.Account.CheckRecoveryPassword(ctx, userID, code); err != nil {
+		return false, passwordErr(err)
+	}
+	return true, nil
 }
 
 // onAuthSignUp 处理 auth.signUp：创建用户并绑定授权。

@@ -2742,16 +2742,34 @@ func (s *PasswordStore) GetByUser(_ context.Context, userID int64) (domain.Passw
 	s.mu.RLock()
 	settings, ok := s.m[userID]
 	s.mu.RUnlock()
-	settings.SecureRandom = append([]byte(nil), settings.SecureRandom...)
-	return settings, ok, nil
+	return clonePasswordSettings(settings), ok, nil
 }
 
 func (s *PasswordStore) Save(_ context.Context, userID int64, settings domain.PasswordSettings) error {
-	settings.SecureRandom = append([]byte(nil), settings.SecureRandom...)
 	s.mu.Lock()
-	s.m[userID] = settings
+	s.m[userID] = clonePasswordSettings(settings)
 	s.mu.Unlock()
 	return nil
+}
+
+func clonePasswordSettings(in domain.PasswordSettings) domain.PasswordSettings {
+	out := in
+	if in.CurrentAlgo != nil {
+		algo := *in.CurrentAlgo
+		algo.Salt1 = append([]byte(nil), algo.Salt1...)
+		algo.Salt2 = append([]byte(nil), algo.Salt2...)
+		algo.P = append([]byte(nil), algo.P...)
+		out.CurrentAlgo = &algo
+	}
+	out.SRPB = append([]byte(nil), in.SRPB...)
+	out.NewAlgo.Salt1 = append([]byte(nil), in.NewAlgo.Salt1...)
+	out.NewAlgo.Salt2 = append([]byte(nil), in.NewAlgo.Salt2...)
+	out.NewAlgo.P = append([]byte(nil), in.NewAlgo.P...)
+	out.NewSecureAlgo.Salt = append([]byte(nil), in.NewSecureAlgo.Salt...)
+	out.SecureRandom = append([]byte(nil), in.SecureRandom...)
+	out.SRPVerifier = append([]byte(nil), in.SRPVerifier...)
+	out.SRPBSecret = append([]byte(nil), in.SRPBSecret...)
+	return out
 }
 
 func (s *PasswordStore) GetReactionSettings(_ context.Context, userID int64) (domain.AccountReactionSettings, bool, error) {
@@ -3047,7 +3065,18 @@ func NewAuthorizationStore() *AuthorizationStore {
 }
 
 func (s *AuthorizationStore) Bind(_ context.Context, a domain.Authorization) error {
+	now := time.Now()
+	if a.Hash == 0 {
+		a.Hash = int64(binary.LittleEndian.Uint64(a.AuthKeyID[:]))
+	}
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = now
+	}
+	a.ActiveAt = now
 	s.mu.Lock()
+	if existing, ok := s.m[a.AuthKeyID]; ok && !existing.CreatedAt.IsZero() {
+		a.CreatedAt = existing.CreatedAt
+	}
 	s.m[a.AuthKeyID] = a
 	s.mu.Unlock()
 	return nil
@@ -3077,6 +3106,32 @@ func (s *AuthorizationStore) Delete(_ context.Context, id [8]byte) error {
 	delete(s.m, id)
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *AuthorizationStore) DeleteByHash(_ context.Context, userID, hash int64) (domain.Authorization, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, a := range s.m {
+		if a.UserID == userID && a.Hash == hash {
+			delete(s.m, id)
+			return a, true, nil
+		}
+	}
+	return domain.Authorization{}, false, nil
+}
+
+func (s *AuthorizationStore) DeleteByUserExcept(_ context.Context, userID int64, keepAuthKeyID [8]byte) ([]domain.Authorization, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]domain.Authorization, 0)
+	for id, a := range s.m {
+		if a.UserID != userID || id == keepAuthKeyID {
+			continue
+		}
+		delete(s.m, id)
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 // CodeStore 是 store.CodeStore 的内存实现（带 TTL）。

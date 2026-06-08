@@ -12,6 +12,12 @@ import (
 
 // registerAccount 注册 account.* RPC handler。
 func (r *Router) registerAccount(d *tg.ServerDispatcher) {
+	d.OnAccountRegisterDevice(func(ctx context.Context, req *tg.AccountRegisterDeviceRequest) (bool, error) {
+		return true, nil
+	})
+	d.OnAccountUnregisterDevice(func(ctx context.Context, req *tg.AccountUnregisterDeviceRequest) (bool, error) {
+		return true, nil
+	})
 	d.OnAccountCheckUsername(r.onAccountCheckUsername)
 	d.OnAccountUpdateProfile(r.onAccountUpdateProfile)
 	d.OnAccountUpdateUsername(r.onAccountUpdateUsername)
@@ -35,11 +41,18 @@ func (r *Router) registerAccount(d *tg.ServerDispatcher) {
 	d.OnAccountUpdateNotifySettings(func(ctx context.Context, req *tg.AccountUpdateNotifySettingsRequest) (bool, error) {
 		return true, nil
 	})
+	d.OnAccountResetNotifySettings(func(ctx context.Context) (bool, error) {
+		return true, nil
+	})
 	d.OnAccountGetPrivacy(r.onAccountGetPrivacy)
 	d.OnAccountSetPrivacy(r.onAccountSetPrivacy)
-	d.OnAccountGetAuthorizations(func(ctx context.Context) (*tg.AccountAuthorizations, error) {
-		return tdesktop.Authorizations(), nil
-	})
+	d.OnAccountGetAuthorizations(r.onAccountGetAuthorizations)
+	d.OnAccountResetAuthorization(r.onAccountResetAuthorization)
+	d.OnAccountGetPasswordSettings(r.onAccountGetPasswordSettings)
+	d.OnAccountUpdatePasswordSettings(r.onAccountUpdatePasswordSettings)
+	d.OnAccountConfirmPasswordEmail(r.onAccountConfirmPasswordEmail)
+	d.OnAccountResendPasswordEmail(r.onAccountResendPasswordEmail)
+	d.OnAccountCancelPasswordEmail(r.onAccountCancelPasswordEmail)
 	d.OnAccountGetDefaultEmojiStatuses(func(ctx context.Context, hash int64) (tg.AccountEmojiStatusesClass, error) {
 		return tdesktop.DefaultEmojiStatuses(), nil
 	})
@@ -57,8 +70,35 @@ func (r *Router) registerAccount(d *tg.ServerDispatcher) {
 	d.OnAccountGetContactSignUpNotification(func(ctx context.Context) (bool, error) {
 		return false, nil
 	})
+	d.OnAccountSetContactSignUpNotification(func(ctx context.Context, silent bool) (bool, error) {
+		return true, nil
+	})
 	d.OnAccountGetThemes(func(ctx context.Context, req *tg.AccountGetThemesRequest) (tg.AccountThemesClass, error) {
 		return tdesktop.AccountThemes(), nil
+	})
+	d.OnAccountGetRecentEmojiStatuses(func(ctx context.Context, hash int64) (tg.AccountEmojiStatusesClass, error) {
+		return &tg.AccountEmojiStatuses{Hash: 0, Statuses: []tg.EmojiStatusClass{}}, nil
+	})
+	d.OnAccountClearRecentEmojiStatuses(func(ctx context.Context) (bool, error) {
+		return true, nil
+	})
+	d.OnAccountUpdateEmojiStatus(func(ctx context.Context, emojistatus tg.EmojiStatusClass) (bool, error) {
+		return true, nil
+	})
+	d.OnAccountGetDefaultProfilePhotoEmojis(func(ctx context.Context, hash int64) (tg.EmojiListClass, error) {
+		return tdesktop.DefaultGroupPhotoEmojis(), nil
+	})
+	d.OnAccountGetDefaultBackgroundEmojis(func(ctx context.Context, hash int64) (tg.EmojiListClass, error) {
+		return tdesktop.DefaultGroupPhotoEmojis(), nil
+	})
+	d.OnAccountGetChannelDefaultEmojiStatuses(func(ctx context.Context, hash int64) (tg.AccountEmojiStatusesClass, error) {
+		return &tg.AccountEmojiStatuses{Hash: 0, Statuses: []tg.EmojiStatusClass{}}, nil
+	})
+	d.OnAccountGetChannelRestrictedStatusEmojis(func(ctx context.Context, hash int64) (tg.EmojiListClass, error) {
+		return tdesktop.DefaultGroupPhotoEmojis(), nil
+	})
+	d.OnAccountSetContentSettings(func(ctx context.Context, req *tg.AccountSetContentSettingsRequest) (bool, error) {
+		return true, nil
 	})
 	d.OnAccountGetContentSettings(func(ctx context.Context) (*tg.AccountContentSettings, error) {
 		return tdesktop.ContentSettings(), nil
@@ -66,8 +106,29 @@ func (r *Router) registerAccount(d *tg.ServerDispatcher) {
 	d.OnAccountGetGlobalPrivacySettings(func(ctx context.Context) (*tg.GlobalPrivacySettings, error) {
 		return tdesktop.GlobalPrivacySettings(), nil
 	})
+	d.OnAccountSetGlobalPrivacySettings(func(ctx context.Context, settings tg.GlobalPrivacySettings) (*tg.GlobalPrivacySettings, error) {
+		return &settings, nil
+	})
 	d.OnAccountGetPasskeys(func(ctx context.Context) (*tg.AccountPasskeys, error) {
 		return tdesktop.Passkeys(), nil
+	})
+	d.OnAccountGetWebAuthorizations(func(ctx context.Context) (*tg.AccountWebAuthorizations, error) {
+		return tdesktop.WebAuthorizations(), nil
+	})
+	d.OnAccountResetWebAuthorization(func(ctx context.Context, hash int64) (bool, error) {
+		return true, nil
+	})
+	d.OnAccountResetWebAuthorizations(func(ctx context.Context) (bool, error) {
+		return true, nil
+	})
+	d.OnAccountGetNotifyExceptions(func(ctx context.Context, req *tg.AccountGetNotifyExceptionsRequest) (tg.UpdatesClass, error) {
+		return &tg.Updates{Updates: []tg.UpdateClass{}, Users: []tg.UserClass{}, Chats: []tg.ChatClass{}, Date: int(r.clock.Now().Unix())}, nil
+	})
+	d.OnAccountGetAutoDownloadSettings(func(ctx context.Context) (*tg.AccountAutoDownloadSettings, error) {
+		return tdesktop.AutoDownloadSettings(), nil
+	})
+	d.OnAccountSaveAutoDownloadSettings(func(ctx context.Context, req *tg.AccountSaveAutoDownloadSettingsRequest) (bool, error) {
+		return true, nil
 	})
 	d.OnAccountGetSavedMusicIDs(func(ctx context.Context, hash int64) (tg.AccountSavedMusicIDsClass, error) {
 		if _, _, err := r.currentUserID(ctx); err != nil {
@@ -76,7 +137,119 @@ func (r *Router) registerAccount(d *tg.ServerDispatcher) {
 		return &tg.AccountSavedMusicIDs{IDs: []int64{}}, nil
 	})
 	d.OnAccountGetAccountTTL(r.onAccountGetAccountTTL)
+	d.OnAccountSetAccountTTL(func(ctx context.Context, ttl tg.AccountDaysTTL) (bool, error) {
+		return true, nil
+	})
+	d.OnAccountSetAuthorizationTTL(func(ctx context.Context, authorizationttldays int) (bool, error) {
+		return true, nil
+	})
+	d.OnAccountChangeAuthorizationSettings(func(ctx context.Context, req *tg.AccountChangeAuthorizationSettingsRequest) (bool, error) {
+		return true, nil
+	})
+	d.OnAccountResetPassword(r.onAccountResetPassword)
+	d.OnAccountDeclinePasswordReset(r.onAccountDeclinePasswordReset)
 	d.OnAccountUpdateStatus(r.onAccountUpdateStatus)
+}
+
+func (r *Router) onAccountGetAuthorizations(ctx context.Context) (*tg.AccountAuthorizations, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return nil, internalErr()
+	}
+	if r.deps.Auth == nil {
+		return tdesktop.Authorizations(), nil
+	}
+	authKeyID, _ := AuthKeyIDFrom(ctx)
+	items, err := r.deps.Auth.ListAuthorizations(ctx, userID)
+	if err != nil {
+		return nil, internalErr()
+	}
+	out := &tg.AccountAuthorizations{Authorizations: make([]tg.Authorization, 0, len(items))}
+	for _, item := range items {
+		out.Authorizations = append(out.Authorizations, tgAuthorization(item, authKeyID, int(r.clock.Now().Unix())))
+	}
+	return out, nil
+}
+
+func (r *Router) onAccountResetAuthorization(ctx context.Context, hash int64) (bool, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return false, internalErr()
+	}
+	if r.deps.Auth == nil {
+		return true, nil
+	}
+	deleted, found, err := r.deps.Auth.ResetAuthorization(ctx, userID, hash)
+	if err != nil {
+		return false, internalErr()
+	}
+	if !found {
+		return true, nil
+	}
+	r.invalidateAuthUserCache(deleted.AuthKeyID)
+	r.unbindAuthKey(deleted.AuthKeyID)
+	_ = r.clearAuthKeyState(ctx, deleted.AuthKeyID)
+	return true, nil
+}
+
+func (r *Router) onAccountGetPasswordSettings(ctx context.Context, password tg.InputCheckPasswordSRPClass) (*tg.AccountPasswordSettings, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return nil, internalErr()
+	}
+	settings, err := r.deps.Account.GetPasswordSettings(ctx, userID, domainPasswordCheck(password))
+	if err != nil {
+		return nil, passwordErr(err)
+	}
+	return tgPasswordSettings(settings), nil
+}
+
+func (r *Router) onAccountUpdatePasswordSettings(ctx context.Context, req *tg.AccountUpdatePasswordSettingsRequest) (bool, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return false, internalErr()
+	}
+	input, err := domainPasswordInputSettings(req.NewSettings)
+	if err != nil {
+		return false, err
+	}
+	if err := r.deps.Account.UpdatePasswordSettings(ctx, userID, domainPasswordCheck(req.Password), input); err != nil {
+		return false, passwordErr(err)
+	}
+	return true, nil
+}
+
+func (r *Router) onAccountConfirmPasswordEmail(ctx context.Context, code string) (bool, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return false, internalErr()
+	}
+	if err := r.deps.Account.ConfirmPasswordEmail(ctx, userID, code); err != nil {
+		return false, passwordErr(err)
+	}
+	return true, nil
+}
+
+func (r *Router) onAccountResendPasswordEmail(ctx context.Context) (bool, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return false, internalErr()
+	}
+	if err := r.deps.Account.ResendPasswordEmail(ctx, userID); err != nil {
+		return false, passwordErr(err)
+	}
+	return true, nil
+}
+
+func (r *Router) onAccountCancelPasswordEmail(ctx context.Context) (bool, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return false, internalErr()
+	}
+	if err := r.deps.Account.CancelPasswordEmail(ctx, userID); err != nil {
+		return false, passwordErr(err)
+	}
+	return true, nil
 }
 
 func (r *Router) onAccountGetPrivacy(ctx context.Context, key tg.InputPrivacyKeyClass) (*tg.AccountPrivacyRules, error) {
@@ -140,6 +313,35 @@ func (r *Router) onAccountGetAccountTTL(ctx context.Context) (*tg.AccountDaysTTL
 	return &tg.AccountDaysTTL{Days: 365}, nil
 }
 
+func (r *Router) onAccountResetPassword(ctx context.Context) (tg.AccountResetPasswordResultClass, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return nil, internalErr()
+	}
+	if r.deps.Account == nil {
+		return &tg.AccountResetPasswordFailedWait{RetryDate: int(r.clock.Now().Unix()) + 86400}, nil
+	}
+	result, err := r.deps.Account.ResetPassword(ctx, userID)
+	if err != nil {
+		return nil, passwordErr(err)
+	}
+	return tgPasswordResetResult(result), nil
+}
+
+func (r *Router) onAccountDeclinePasswordReset(ctx context.Context) (bool, error) {
+	userID, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return false, internalErr()
+	}
+	if r.deps.Account == nil {
+		return true, nil
+	}
+	if err := r.deps.Account.DeclinePasswordReset(ctx, userID); err != nil {
+		return false, internalErr()
+	}
+	return true, nil
+}
+
 func (r *Router) onAccountUpdateStatus(ctx context.Context, offline bool) (bool, error) {
 	userID, authorized, err := r.currentUserID(ctx)
 	if err != nil {
@@ -151,6 +353,19 @@ func (r *Router) onAccountUpdateStatus(ctx context.Context, offline bool) (bool,
 	status := r.setPresenceFromContext(ctx, userID, offline)
 	r.pushUserStatus(ctx, userID, status)
 	return true, nil
+}
+
+func tgPasswordResetResult(result domain.PasswordResetResult) tg.AccountResetPasswordResultClass {
+	switch result.Kind {
+	case domain.PasswordResetOK:
+		return &tg.AccountResetPasswordOk{}
+	case domain.PasswordResetRequestedWait:
+		return &tg.AccountResetPasswordRequestedWait{UntilDate: result.UntilDate}
+	case domain.PasswordResetFailedWait:
+		return &tg.AccountResetPasswordFailedWait{RetryDate: result.RetryDate}
+	default:
+		return &tg.AccountResetPasswordFailedWait{}
+	}
 }
 
 func (r *Router) tgAccountPrivacyRules(ctx context.Context, viewerUserID int64, rules domain.PrivacyRules) (*tg.AccountPrivacyRules, error) {
@@ -530,6 +745,33 @@ func (r *Router) pushUsernameUpdate(ctx context.Context, u domain.User) {
 		Users: []tg.UserClass{r.tgSelfUser(u)},
 		Date:  int(r.clock.Now().Unix()),
 	})
+}
+
+func tgAuthorization(a domain.Authorization, currentAuthKeyID [8]byte, now int) tg.Authorization {
+	created := int(a.CreatedAt.Unix())
+	if created == 0 {
+		created = now
+	}
+	active := int(a.ActiveAt.Unix())
+	if active == 0 {
+		active = created
+	}
+	return tg.Authorization{
+		Current:       a.AuthKeyID == currentAuthKeyID,
+		OfficialApp:   true,
+		Hash:          a.Hash,
+		DeviceModel:   a.DeviceModel,
+		Platform:      a.Platform,
+		SystemVersion: a.SystemVersion,
+		APIID:         a.APIID,
+		AppName:       "Telegram Desktop",
+		AppVersion:    a.AppVersion,
+		DateCreated:   created,
+		DateActive:    active,
+		IP:            a.IP,
+		Country:       "Unknown",
+		Region:        "Unknown",
+	}
 }
 
 func usernameErr(err error) error {

@@ -1875,17 +1875,95 @@ func tgPassword(settings domain.PasswordSettings) *tg.AccountPassword {
 	if len(settings.SecureRandom) == 0 {
 		settings.SecureRandom = []byte("telesrv-tdesktop-dev-secure-rand")
 	}
-	return &tg.AccountPassword{
+	out := &tg.AccountPassword{
 		HasRecovery:             settings.HasRecovery,
 		HasSecureValues:         settings.HasSecureValues,
 		HasPassword:             settings.HasPassword,
 		Hint:                    settings.Hint,
 		EmailUnconfirmedPattern: settings.EmailUnconfirmedPattern,
-		NewAlgo:                 &tg.PasswordKdfAlgoUnknown{},
-		NewSecureAlgo:           &tg.SecurePasswordKdfAlgoUnknown{},
+		NewAlgo:                 tgPasswordAlgo(settings.NewAlgo),
+		NewSecureAlgo:           tgSecurePasswordAlgo(settings.NewSecureAlgo),
 		SecureRandom:            settings.SecureRandom,
 		LoginEmailPattern:       settings.LoginEmailPattern,
 	}
+	if settings.HasPassword && settings.CurrentAlgo != nil {
+		out.CurrentAlgo = tgPasswordAlgo(*settings.CurrentAlgo)
+		out.SRPB = append([]byte(nil), settings.SRPB...)
+		out.SRPID = settings.SRPID
+	}
+	if settings.PendingResetDate != 0 {
+		out.PendingResetDate = settings.PendingResetDate
+	}
+	return out
+}
+
+func tgPasswordAlgo(algo domain.PasswordKDFAlgo) tg.PasswordKdfAlgoClass {
+	if len(algo.P) == 0 || algo.G == 0 {
+		return &tg.PasswordKdfAlgoUnknown{}
+	}
+	return &tg.PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow{
+		Salt1: append([]byte(nil), algo.Salt1...),
+		Salt2: append([]byte(nil), algo.Salt2...),
+		G:     algo.G,
+		P:     append([]byte(nil), algo.P...),
+	}
+}
+
+func domainPasswordAlgo(in tg.PasswordKdfAlgoClass) (*domain.PasswordKDFAlgo, bool) {
+	if algo, ok := in.(*tg.PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow); ok {
+		return &domain.PasswordKDFAlgo{
+			Salt1: append([]byte(nil), algo.Salt1...),
+			Salt2: append([]byte(nil), algo.Salt2...),
+			G:     algo.G,
+			P:     append([]byte(nil), algo.P...),
+		}, true
+	}
+	return nil, false
+}
+
+func tgSecurePasswordAlgo(algo domain.SecurePasswordKDFAlgo) tg.SecurePasswordKdfAlgoClass {
+	if algo.Kind == "pbkdf2_hmac_sha512_iter100000" {
+		return &tg.SecurePasswordKdfAlgoPBKDF2HMACSHA512iter100000{Salt: append([]byte(nil), algo.Salt...)}
+	}
+	return &tg.SecurePasswordKdfAlgoUnknown{}
+}
+
+func domainPasswordCheck(in tg.InputCheckPasswordSRPClass) domain.PasswordCheck {
+	if srp, ok := in.(*tg.InputCheckPasswordSRP); ok {
+		return domain.PasswordCheck{
+			SRPID: srp.SRPID,
+			A:     append([]byte(nil), srp.A...),
+			M1:    append([]byte(nil), srp.M1...),
+		}
+	}
+	return domain.PasswordCheck{Empty: true}
+}
+
+func domainPasswordInputSettings(in tg.AccountPasswordInputSettings) (domain.PasswordInputSettings, error) {
+	out := domain.PasswordInputSettings{}
+	if algo, ok := in.GetNewAlgo(); ok {
+		domainAlgo, ok := domainPasswordAlgo(algo)
+		if !ok {
+			return out, passwordHashInvalidErr()
+		}
+		out.NewAlgo = domainAlgo
+		out.NewPasswordHash = append([]byte(nil), in.NewPasswordHash...)
+		out.Hint = in.Hint
+		out.HasHint = true
+	}
+	if email, ok := in.GetEmail(); ok {
+		out.Email = email
+		out.HasEmail = true
+	}
+	return out, nil
+}
+
+func tgPasswordSettings(settings domain.PrivatePasswordSettings) *tg.AccountPasswordSettings {
+	out := &tg.AccountPasswordSettings{}
+	if settings.Email != "" {
+		out.Email = settings.Email
+	}
+	return out
 }
 
 func tgCountriesList(list domain.CountriesList) tg.HelpCountriesListClass {

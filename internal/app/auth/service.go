@@ -34,6 +34,7 @@ type Service struct {
 	codes     store.CodeStore
 	authKeys  store.AuthKeyStore
 	tempKeys  store.TempAuthKeyBindingStore
+	passwords store.PasswordStore
 	messages  store.MessageStore
 	dialogs   store.DialogStore
 	fixedCode string
@@ -48,6 +49,13 @@ func WithLoginMessages(messages store.MessageStore, dialogs store.DialogStore) O
 	return func(s *Service) {
 		s.messages = messages
 		s.dialogs = dialogs
+	}
+}
+
+// WithPasswords lets sign-in stop at SESSION_PASSWORD_NEEDED for 2FA accounts.
+func WithPasswords(passwords store.PasswordStore) Option {
+	return func(s *Service) {
+		s.passwords = passwords
 	}
 }
 
@@ -114,6 +122,39 @@ func (s *Service) SendCode(ctx context.Context, phone string) (string, error) {
 	return hash, nil
 }
 
+// ResendCode invalidates an existing code hash and sends a fresh code to the same phone.
+func (s *Service) ResendCode(ctx context.Context, phone, phoneCodeHash string) (string, error) {
+	phone = normalizePhone(phone)
+	rec, found, err := s.codes.Get(ctx, phoneCodeHash)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", ErrCodeExpired
+	}
+	if rec.Phone != phone {
+		return "", ErrCodeInvalid
+	}
+	_ = s.codes.Del(ctx, phoneCodeHash)
+	return s.SendCode(ctx, phone)
+}
+
+// CancelCode invalidates a pending login code hash.
+func (s *Service) CancelCode(ctx context.Context, phone, phoneCodeHash string) error {
+	phone = normalizePhone(phone)
+	rec, found, err := s.codes.Get(ctx, phoneCodeHash)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return ErrCodeExpired
+	}
+	if rec.Phone != phone {
+		return ErrCodeInvalid
+	}
+	return s.codes.Del(ctx, phoneCodeHash)
+}
+
 // SignIn 校验验证码并尝试登录。
 // needSignUp=true 表示验证码正确但用户不存在，调用方应引导注册（此时不删验证码，留给 SignUp）。
 func (s *Service) SignIn(ctx context.Context, auth domain.Authorization, phone, phoneCodeHash, code string) (u domain.User, loginMessage domain.Message, needSignUp bool, err error) {
@@ -138,6 +179,10 @@ func (s *Service) SignIn(ctx context.Context, auth domain.Authorization, phone, 
 	}
 	if err := s.bind(ctx, auth, existing.ID); err != nil {
 		return domain.User{}, domain.Message{}, false, err
+	}
+	if s.passwordNeeded(ctx, existing.ID) {
+		_ = s.codes.Del(ctx, phoneCodeHash)
+		return existing, domain.Message{}, false, domain.ErrSessionPasswordNeeded
 	}
 	loginMessage, err = s.recordLoginMessage(ctx, existing.ID, rec.Code)
 	if err != nil {
@@ -196,9 +241,38 @@ func (s *Service) LogOut(ctx context.Context, authKeyID [8]byte) error {
 	return s.auths.Delete(ctx, authKeyID)
 }
 
+func (s *Service) ListAuthorizations(ctx context.Context, userID int64) ([]domain.Authorization, error) {
+	if s == nil || s.auths == nil || userID == 0 {
+		return nil, nil
+	}
+	return s.auths.ListByUser(ctx, userID)
+}
+
+func (s *Service) ResetAuthorization(ctx context.Context, userID, hash int64) (domain.Authorization, bool, error) {
+	if s == nil || s.auths == nil || userID == 0 {
+		return domain.Authorization{}, false, nil
+	}
+	return s.auths.DeleteByHash(ctx, userID, hash)
+}
+
+func (s *Service) ResetAuthorizations(ctx context.Context, userID int64, keepAuthKeyID [8]byte) ([]domain.Authorization, error) {
+	if s == nil || s.auths == nil || userID == 0 {
+		return nil, nil
+	}
+	return s.auths.DeleteByUserExcept(ctx, userID, keepAuthKeyID)
+}
+
 func (s *Service) bind(ctx context.Context, auth domain.Authorization, userID int64) error {
 	auth.UserID = userID
 	return s.auths.Bind(ctx, auth)
+}
+
+func (s *Service) passwordNeeded(ctx context.Context, userID int64) bool {
+	if s.passwords == nil {
+		return false
+	}
+	settings, found, err := s.passwords.GetByUser(ctx, userID)
+	return err == nil && found && settings.HasPassword
 }
 
 const loginMessageTpl = `Login code: %s. Do not give this code to anyone, even if they say they are from Telegram!

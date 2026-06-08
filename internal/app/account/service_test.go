@@ -1,0 +1,185 @@
+package account
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"math/big"
+	"testing"
+	"time"
+
+	"telesrv/internal/domain"
+	"telesrv/internal/store/memory"
+)
+
+func TestPasswordSRPRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 1001
+	svc := NewService(memory.NewPasswordStore())
+
+	initial, err := svc.GetPassword(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetPassword initial: %v", err)
+	}
+	algo := initial.NewAlgo
+	algo.Salt1 = append(append([]byte(nil), algo.Salt1...), bytes.Repeat([]byte{0xA5}, 32)...)
+	input := domain.PasswordInputSettings{
+		NewAlgo:         &algo,
+		NewPasswordHash: verifierForPassword(algo, []byte("correct horse")),
+		Hint:            "horse",
+		HasHint:         true,
+		Email:           "alice@example.com",
+		HasEmail:        true,
+	}
+	if err := svc.UpdatePasswordSettings(ctx, userID, domain.PasswordCheck{Empty: true}, input); err != nil {
+		t.Fatalf("UpdatePasswordSettings set password: %v", err)
+	}
+
+	challenge, err := svc.GetPassword(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetPassword challenge: %v", err)
+	}
+	if !challenge.HasPassword || challenge.SRPID == 0 || len(challenge.SRPB) == 0 {
+		t.Fatalf("challenge = %+v, want srp password challenge", challenge)
+	}
+	check := clientPasswordCheck(t, challenge, []byte("correct horse"))
+	if err := svc.CheckPassword(ctx, userID, check); err != nil {
+		t.Fatalf("CheckPassword valid SRP: %v", err)
+	}
+
+	private, err := svc.GetPasswordSettings(ctx, userID, check)
+	if err != nil {
+		t.Fatalf("GetPasswordSettings valid SRP: %v", err)
+	}
+	if private.Email != "alice@example.com" {
+		t.Fatalf("private email = %q, want alice@example.com", private.Email)
+	}
+
+	bad := check
+	bad.M1 = append([]byte(nil), check.M1...)
+	bad.M1[0] ^= 0xFF
+	if err := svc.CheckPassword(ctx, userID, bad); !errors.Is(err, domain.ErrPasswordHashInvalid) {
+		t.Fatalf("CheckPassword bad M1 err = %v, want ErrPasswordHashInvalid", err)
+	}
+}
+
+func TestRecoverPasswordClearsTwoFactorPassword(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 1002
+	svc := NewService(memory.NewPasswordStore())
+
+	initial, err := svc.GetPassword(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetPassword initial: %v", err)
+	}
+	algo := initial.NewAlgo
+	algo.Salt1 = append(append([]byte(nil), algo.Salt1...), bytes.Repeat([]byte{0x5C}, 32)...)
+	if err := svc.UpdatePasswordSettings(ctx, userID, domain.PasswordCheck{Empty: true}, domain.PasswordInputSettings{
+		NewAlgo:         &algo,
+		NewPasswordHash: verifierForPassword(algo, []byte("old password")),
+		Email:           "bob@example.com",
+		HasEmail:        true,
+	}); err != nil {
+		t.Fatalf("UpdatePasswordSettings set password: %v", err)
+	}
+
+	pattern, err := svc.RequestPasswordRecovery(ctx, userID)
+	if err != nil {
+		t.Fatalf("RequestPasswordRecovery: %v", err)
+	}
+	if pattern != "b***b@example.com" {
+		t.Fatalf("recovery pattern = %q, want masked email", pattern)
+	}
+	if err := svc.RecoverPassword(ctx, userID, recoveryCode, nil); err != nil {
+		t.Fatalf("RecoverPassword clear: %v", err)
+	}
+	cleared, err := svc.GetPassword(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetPassword cleared: %v", err)
+	}
+	if cleared.HasPassword || cleared.HasRecovery {
+		t.Fatalf("cleared settings = %+v, want no password/recovery", cleared)
+	}
+}
+
+func TestResetPasswordWaitAndDecline(t *testing.T) {
+	ctx := context.Background()
+	const userID int64 = 1003
+	passwords := memory.NewPasswordStore()
+	svc := NewService(passwords)
+
+	if err := passwords.Save(ctx, userID, domain.PasswordSettings{HasPassword: true}); err != nil {
+		t.Fatalf("save password settings: %v", err)
+	}
+	result, err := svc.ResetPassword(ctx, userID)
+	if err != nil {
+		t.Fatalf("ResetPassword request: %v", err)
+	}
+	if result.Kind != domain.PasswordResetRequestedWait || result.UntilDate <= int(time.Now().Unix()) {
+		t.Fatalf("reset result = %+v, want requested future wait", result)
+	}
+	pending, _, err := passwords.GetByUser(ctx, userID)
+	if err != nil || pending.PendingResetDate != result.UntilDate {
+		t.Fatalf("pending reset = %+v found err=%v, want until date", pending, err)
+	}
+
+	if err := svc.DeclinePasswordReset(ctx, userID); err != nil {
+		t.Fatalf("DeclinePasswordReset: %v", err)
+	}
+	declined, _, err := passwords.GetByUser(ctx, userID)
+	if err != nil || declined.PendingResetDate != 0 {
+		t.Fatalf("declined settings = %+v err=%v, want no pending reset", declined, err)
+	}
+
+	declined.PendingResetDate = int(time.Now().Add(-time.Second).Unix())
+	if err := passwords.Save(ctx, userID, declined); err != nil {
+		t.Fatalf("save expired reset: %v", err)
+	}
+	result, err = svc.ResetPassword(ctx, userID)
+	if err != nil {
+		t.Fatalf("ResetPassword finalize: %v", err)
+	}
+	if result.Kind != domain.PasswordResetOK {
+		t.Fatalf("final reset result = %+v, want ok", result)
+	}
+	cleared, _, err := passwords.GetByUser(ctx, userID)
+	if err != nil || cleared.HasPassword || cleared.PendingResetDate != 0 {
+		t.Fatalf("cleared settings = %+v err=%v, want password cleared", cleared, err)
+	}
+}
+
+func clientPasswordCheck(t *testing.T, settings domain.PasswordSettings, password []byte) domain.PasswordCheck {
+	t.Helper()
+	algo := settings.NewAlgo
+	if settings.CurrentAlgo != nil {
+		algo = *settings.CurrentAlgo
+	}
+	p := new(big.Int).SetBytes(algo.P)
+	g := big.NewInt(int64(algo.G))
+	a := new(big.Int).SetBytes(bytes.Repeat([]byte{0x23}, passwordHashSize))
+	A := new(big.Int).Exp(g, a, p)
+	aForHash := padToHash(A.Bytes())
+	bForHash := padToHash(settings.SRPB)
+	x := new(big.Int).SetBytes(passwordDigest(algo, password))
+	u := new(big.Int).SetBytes(hashBytes(aForHash, bForHash))
+	k := new(big.Int).SetBytes(hashBytes(padToHash(algo.P), padToHash(g.Bytes())))
+	gx := new(big.Int).Exp(g, x, p)
+	kgx := new(big.Int).Mul(k, gx)
+	kgx.Mod(kgx, p)
+	b := new(big.Int).SetBytes(settings.SRPB)
+	base := new(big.Int).Sub(b, kgx)
+	base.Mod(base, p)
+	exp := new(big.Int).Mul(u, x)
+	exp.Add(exp, a)
+	s := new(big.Int).Exp(base, exp, p)
+	kBytes := hashBytes(padToHash(s.Bytes()))
+	m1 := hashBytes(
+		xorBytes(hashBytes(padToHash(algo.P)), hashBytes(padToHash(g.Bytes()))),
+		hashBytes(algo.Salt1),
+		hashBytes(algo.Salt2),
+		aForHash,
+		bForHash,
+		kBytes,
+	)
+	return domain.PasswordCheck{SRPID: settings.SRPID, A: aForHash, M1: m1}
+}

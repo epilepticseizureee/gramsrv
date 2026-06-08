@@ -53,6 +53,10 @@ func Authorizations() *tg.AccountAuthorizations {
 	return &tg.AccountAuthorizations{Authorizations: []tg.Authorization{}}
 }
 
+func WebAuthorizations() *tg.AccountWebAuthorizations {
+	return &tg.AccountWebAuthorizations{Authorizations: []tg.WebAuthorization{}, Users: []tg.UserClass{}}
+}
+
 func Passkeys() *tg.AccountPasskeys {
 	return &tg.AccountPasskeys{Passkeys: []tg.Passkey{}}
 }
@@ -67,6 +71,22 @@ func GlobalPrivacySettings() *tg.GlobalPrivacySettings {
 
 func AccountThemes() tg.AccountThemesClass {
 	return &tg.AccountThemesNotModified{}
+}
+
+func AutoDownloadSettings() *tg.AccountAutoDownloadSettings {
+	settings := tg.AutoDownloadSettings{
+		PhotoSizeMax:                  10 * 1024 * 1024,
+		VideoSizeMax:                  20 * 1024 * 1024,
+		FileSizeMax:                   20 * 1024 * 1024,
+		VideoUploadMaxbitrate:         1000,
+		SmallQueueActiveOperationsMax: 2,
+		LargeQueueActiveOperationsMax: 1,
+	}
+	return &tg.AccountAutoDownloadSettings{
+		Low:    settings,
+		Medium: settings,
+		High:   settings,
+	}
 }
 
 func DefaultEmojiStatuses() tg.AccountEmojiStatusesClass {

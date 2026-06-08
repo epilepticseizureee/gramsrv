@@ -185,7 +185,7 @@ func run(logger *zap.Logger) error {
 		Port:                port,
 		OutboundPushTimeout: cfg.OutboundPushTimeout,
 	}, rpc.Deps{
-		Auth:     auth.NewService(userStore, authzStore, codeStore, authKeyStore, tempAuthKeyStore, cfg.DevAuthCode, auth.WithLoginMessages(messageStore, dialogStore)),
+		Auth:     auth.NewService(userStore, authzStore, codeStore, authKeyStore, tempAuthKeyStore, cfg.DevAuthCode, auth.WithLoginMessages(messageStore, dialogStore), auth.WithPasswords(passwordStore)),
 		Account:  account.NewService(passwordStore, account.WithReactionSettings(passwordStore)),
 		Privacy:  privacyService,
 		Help:     help.NewService(helpStore, helpStore),

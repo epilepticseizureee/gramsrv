@@ -20,9 +20,14 @@ type AuthService interface {
 	ResolveAuthKey(ctx context.Context, authKeyID [8]byte) ([8]byte, bool, error)
 	UserID(ctx context.Context, authKeyID [8]byte) (int64, bool, error)
 	SendCode(ctx context.Context, phone string) (string, error)
+	ResendCode(ctx context.Context, phone, phoneCodeHash string) (string, error)
+	CancelCode(ctx context.Context, phone, phoneCodeHash string) error
 	SignIn(ctx context.Context, a domain.Authorization, phone, phoneCodeHash, code string) (domain.User, domain.Message, bool, error)
 	SignUp(ctx context.Context, a domain.Authorization, phone, phoneCodeHash, firstName, lastName string) (domain.User, domain.Message, error)
 	LogOut(ctx context.Context, authKeyID [8]byte) error
+	ListAuthorizations(ctx context.Context, userID int64) ([]domain.Authorization, error)
+	ResetAuthorization(ctx context.Context, userID, hash int64) (domain.Authorization, bool, error)
+	ResetAuthorizations(ctx context.Context, userID int64, keepAuthKeyID [8]byte) ([]domain.Authorization, error)
 }
 
 // SessionBinder 抽象登录后 session 与 user 的在线绑定。
@@ -99,6 +104,17 @@ type UserIdentityService interface {
 // AccountService 抽象账号设置查询。
 type AccountService interface {
 	GetPassword(ctx context.Context, userID int64) (domain.PasswordSettings, error)
+	GetPasswordSettings(ctx context.Context, userID int64, check domain.PasswordCheck) (domain.PrivatePasswordSettings, error)
+	UpdatePasswordSettings(ctx context.Context, userID int64, check domain.PasswordCheck, input domain.PasswordInputSettings) error
+	CheckPassword(ctx context.Context, userID int64, check domain.PasswordCheck) error
+	RequestPasswordRecovery(ctx context.Context, userID int64) (string, error)
+	CheckRecoveryPassword(ctx context.Context, userID int64, code string) error
+	RecoverPassword(ctx context.Context, userID int64, code string, input *domain.PasswordInputSettings) error
+	ConfirmPasswordEmail(ctx context.Context, userID int64, code string) error
+	ResendPasswordEmail(ctx context.Context, userID int64) error
+	CancelPasswordEmail(ctx context.Context, userID int64) error
+	ResetPassword(ctx context.Context, userID int64) (domain.PasswordResetResult, error)
+	DeclinePasswordReset(ctx context.Context, userID int64) error
 }
 
 // PrivacyService owns account privacy rule storage/evaluation.

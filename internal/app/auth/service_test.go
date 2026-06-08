@@ -241,6 +241,45 @@ func TestSignUpWritesOfficialLoginMessage(t *testing.T) {
 	}
 }
 
+func TestSignInExistingTwoFactorAccountNeedsPassword(t *testing.T) {
+	ctx := context.Background()
+	passwords := memory.NewPasswordStore()
+	svc := NewService(memory.NewUserStore(), memory.NewAuthorizationStore(), memory.NewCodeStore(), nil, nil, "12345", WithPasswords(passwords))
+	var key [8]byte
+	key[0] = 7
+
+	hash, err := svc.SendCode(ctx, "+15550004312")
+	if err != nil {
+		t.Fatalf("SendCode signup: %v", err)
+	}
+	u, _, err := svc.SignUp(ctx, domain.Authorization{AuthKeyID: key}, "+15550004312", hash, "Two", "Factor")
+	if err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := svc.LogOut(ctx, key); err != nil {
+		t.Fatalf("LogOut: %v", err)
+	}
+	if err := passwords.Save(ctx, u.ID, domain.PasswordSettings{HasPassword: true}); err != nil {
+		t.Fatalf("save password settings: %v", err)
+	}
+
+	hash, err = svc.SendCode(ctx, "+15550004312")
+	if err != nil {
+		t.Fatalf("SendCode signin: %v", err)
+	}
+	got, _, needSignUp, err := svc.SignIn(ctx, domain.Authorization{AuthKeyID: key}, "+15550004312", hash, "12345")
+	if !errors.Is(err, domain.ErrSessionPasswordNeeded) {
+		t.Fatalf("SignIn err = %v, want ErrSessionPasswordNeeded", err)
+	}
+	if needSignUp || got.ID != u.ID {
+		t.Fatalf("SignIn user=%+v needSignUp=%v, want existing 2FA user", got, needSignUp)
+	}
+	bound, found, err := svc.UserID(ctx, key)
+	if err != nil || !found || bound != u.ID {
+		t.Fatalf("UserID after password-needed = %d found=%v err=%v, want %d", bound, found, err, u.ID)
+	}
+}
+
 func testAuthKey(seed byte) mtcrypto.AuthKey {
 	var raw mtcrypto.Key
 	for i := range raw {

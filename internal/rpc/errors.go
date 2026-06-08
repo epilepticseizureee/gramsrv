@@ -118,6 +118,10 @@ func usernameNotModifiedErr() error { return tgerr.New(400, "USERNAME_NOT_MODIFI
 
 func phoneNotOccupiedErr() error { return tgerr.New(400, "PHONE_NOT_OCCUPIED") }
 
+func dcIDInvalidErr() error { return tgerr.New(400, "DC_ID_INVALID") }
+
+func authTokenInvalidErr() error { return tgerr.New(400, "AUTH_TOKEN_INVALID") }
+
 func userIDInvalidErr() error { return tgerr.New(400, "USER_ID_INVALID") }
 
 func usersTooFewErr() error { return tgerr.New(400, "USERS_TOO_FEW") }
@@ -151,6 +155,16 @@ func messageEditForbiddenErr() error { return tgerr.New(403, "EDIT_MESSAGES_FORB
 func messageDeleteForbiddenErr() error { return tgerr.New(403, "DELETE_MESSAGES_FORBIDDEN") }
 
 func messageNotReadYetErr() error { return tgerr.New(400, "MESSAGE_NOT_READ_YET") }
+
+func sessionPasswordNeededErr() error { return tgerr.New(401, "SESSION_PASSWORD_NEEDED") }
+func passwordHashInvalidErr() error   { return tgerr.New(400, "PASSWORD_HASH_INVALID") }
+func srpIDInvalidErr() error          { return tgerr.New(400, "SRP_ID_INVALID") }
+func srpPasswordChangedErr() error    { return tgerr.New(400, "SRP_PASSWORD_CHANGED") }
+func newSettingsInvalidErr() error    { return tgerr.New(400, "NEW_SETTINGS_INVALID") }
+func newSaltInvalidErr() error        { return tgerr.New(400, "NEW_SALT_INVALID") }
+func emailInvalidErr() error          { return tgerr.New(400, "EMAIL_INVALID") }
+func emailCodeInvalidErr() error      { return tgerr.New(400, "CODE_INVALID") }
+func passwordRecoveryNAErr() error    { return tgerr.New(400, "PASSWORD_RECOVERY_NA") }
 
 func replyMessageIDInvalidErr() error { return tgerr.New(400, "REPLY_MESSAGE_ID_INVALID") }
 
@@ -188,6 +202,31 @@ func signInErr(err error) error {
 		return tgerr.New(400, "PHONE_CODE_EXPIRED")
 	case errors.Is(err, domain.ErrFirstNameInvalid):
 		return firstNameInvalidErr()
+	case errors.Is(err, domain.ErrSessionPasswordNeeded):
+		return sessionPasswordNeededErr()
+	default:
+		return internalErr()
+	}
+}
+
+func passwordErr(err error) error {
+	switch {
+	case errors.Is(err, domain.ErrPasswordHashInvalid):
+		return passwordHashInvalidErr()
+	case errors.Is(err, domain.ErrSRPIDInvalid):
+		return srpIDInvalidErr()
+	case errors.Is(err, domain.ErrSRPPasswordChanged):
+		return srpPasswordChangedErr()
+	case errors.Is(err, domain.ErrNewSettingsInvalid):
+		return newSettingsInvalidErr()
+	case errors.Is(err, domain.ErrNewSaltInvalid):
+		return newSaltInvalidErr()
+	case errors.Is(err, domain.ErrEmailInvalid):
+		return emailInvalidErr()
+	case errors.Is(err, domain.ErrEmailCodeInvalid):
+		return emailCodeInvalidErr()
+	case errors.Is(err, domain.ErrPasswordRecoveryNA):
+		return passwordRecoveryNAErr()
 	default:
 		return internalErr()
 	}
