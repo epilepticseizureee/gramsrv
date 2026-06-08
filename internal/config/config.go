@@ -2,8 +2,10 @@
 package config
 
 import (
+	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -45,9 +47,8 @@ type Config struct {
 	// StickerSeedMaxSets 限制导入的常规贴纸集数量（避免启动时导入过多包），<=0 表示不限。
 	StickerSeedMaxSets int
 
-	// OutboxWorkers 是并发 claim 的 outbox worker 数。worker 间用 FOR UPDATE SKIP LOCKED 互不重叠。
-	// 开发默认偏保守，避免 TDesktop 启动风暴下多个 worker 同扫分区父表触发 PG lock/shared-memory 压力；
-	// 压测或生产可按硬件用 TELESRV_OUTBOX_WORKERS 调高。
+	// OutboxWorkers 是并发 claim 的 outbox worker 数。默认 1，保证同一用户 pts update
+	// 在线投递顺序与持久化顺序一致；后续需要吞吐时应改成按 target_user_id 分片的串行 worker。
 	OutboxWorkers int
 	// OutboxBatch 是 transactional outbox worker 每次 claim 的最大条数。
 	// 调大提升吞吐、增大单批 PG/推送压力；调小降低延迟抖动。配套压测见 docs/message-module.md。
@@ -69,9 +70,13 @@ type Config struct {
 
 // Load 从环境变量读取配置并填充默认值。第一阶段不做严格校验。
 func Load() (Config, error) {
+	advertiseIP := os.Getenv("TELESRV_ADVERTISE_IP")
+	if advertiseIP == "" {
+		advertiseIP = defaultAdvertiseIP()
+	}
 	cfg := Config{
 		ListenAddr:  envOr("TELESRV_LISTEN", "0.0.0.0:2398"),
-		AdvertiseIP: envOr("TELESRV_ADVERTISE_IP", "127.0.0.1"),
+		AdvertiseIP: advertiseIP,
 		RSAKeyPath:  envOr("TELESRV_RSA_KEY", "data/server_rsa.pem"),
 		DC:          envIntOr("TELESRV_DC", 2),
 
@@ -88,7 +93,7 @@ func Load() (Config, error) {
 		StickerSeedDir:     envOr("TELESRV_STICKER_SEED_DIR", "data/sticker-seed"),
 		StickerSeedMaxSets: envIntOr("TELESRV_STICKER_SEED_MAX_SETS", 40),
 
-		OutboxWorkers:        envIntOr("TELESRV_OUTBOX_WORKERS", 2),
+		OutboxWorkers:        envIntOr("TELESRV_OUTBOX_WORKERS", 1),
 		OutboxBatch:          envIntOr("TELESRV_OUTBOX_BATCH", 100),
 		OutboxInterval:       envDurationOr("TELESRV_OUTBOX_INTERVAL", 200*time.Millisecond),
 		OutboxLeaseTimeout:   envDurationOr("TELESRV_OUTBOX_LEASE_TIMEOUT", 30*time.Second),
@@ -98,6 +103,109 @@ func Load() (Config, error) {
 		RetentionBatch:       envIntOr("TELESRV_RETENTION_BATCH", 10000),
 	}
 	return cfg, nil
+}
+
+func defaultAdvertiseIP() string {
+	if ip := detectAdvertiseIP(); ip != "" {
+		return ip
+	}
+	return "127.0.0.1"
+}
+
+func detectAdvertiseIP() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	var physical []net.IP
+	var virtual []net.IP
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ip := ipFromAddr(addr)
+			if ip == nil || !isPrivateIPv4(ip) {
+				continue
+			}
+			if likelyVirtualInterface(iface.Name) {
+				virtual = append(virtual, ip)
+				continue
+			}
+			physical = append(physical, ip)
+		}
+	}
+	if ip := preferredAdvertiseIP(physical); ip != "" {
+		return ip
+	}
+	return preferredAdvertiseIP(virtual)
+}
+
+func ipFromAddr(addr net.Addr) net.IP {
+	switch v := addr.(type) {
+	case *net.IPNet:
+		return v.IP.To4()
+	case *net.IPAddr:
+		return v.IP.To4()
+	default:
+		return nil
+	}
+}
+
+func preferredAdvertiseIP(ips []net.IP) string {
+	for _, ip := range ips {
+		if v4 := ip.To4(); v4 != nil && v4[0] == 10 {
+			return v4.String()
+		}
+	}
+	for _, ip := range ips {
+		if v4 := ip.To4(); v4 != nil && v4[0] == 192 && v4[1] == 168 {
+			return v4.String()
+		}
+	}
+	for _, ip := range ips {
+		if v4 := ip.To4(); v4 != nil && v4[0] == 172 && v4[1] >= 16 && v4[1] <= 31 {
+			return v4.String()
+		}
+	}
+	if len(ips) == 0 {
+		return ""
+	}
+	return ips[0].String()
+}
+
+func isPrivateIPv4(ip net.IP) bool {
+	v4 := ip.To4()
+	if v4 == nil {
+		return false
+	}
+	return v4[0] == 10 ||
+		(v4[0] == 172 && v4[1] >= 16 && v4[1] <= 31) ||
+		(v4[0] == 192 && v4[1] == 168)
+}
+
+func likelyVirtualInterface(name string) bool {
+	name = strings.ToLower(name)
+	virtualMarkers := []string{
+		"docker",
+		"hyper-v",
+		"tailscale",
+		"virtual",
+		"virtualbox",
+		"vethernet",
+		"vmware",
+		"wsl",
+	}
+	for _, marker := range virtualMarkers {
+		if strings.Contains(name, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func envOr(key, def string) string {
