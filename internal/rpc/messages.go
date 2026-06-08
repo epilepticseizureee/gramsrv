@@ -183,6 +183,12 @@ func (r *Router) registerMessages(d *tg.ServerDispatcher) {
 	d.OnMessagesGetStickers(func(ctx context.Context, req *tg.MessagesGetStickersRequest) (tg.MessagesStickersClass, error) {
 		return tdesktop.Stickers(), nil
 	})
+	d.OnMessagesGetArchivedStickers(func(ctx context.Context, req *tg.MessagesGetArchivedStickersRequest) (*tg.MessagesArchivedStickers, error) {
+		return &tg.MessagesArchivedStickers{
+			Count: 0,
+			Sets:  []tg.StickerSetCoveredClass{},
+		}, nil
+	})
 	d.OnMessagesGetStickerSet(r.onMessagesGetStickerSet)
 	d.OnMessagesGetEmojiGroups(func(ctx context.Context, hash int) (tg.MessagesEmojiGroupsClass, error) {
 		return tdesktop.EmojiGroups(), nil

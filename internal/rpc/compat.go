@@ -21,6 +21,12 @@ func (r *Router) dispatchCompat(ctx context.Context, b *bin.Buffer, id uint32) (
 	)
 
 	switch id {
+	case legacyAccountRegisterDeviceTypeID:
+		name = "account.registerDevice#637ea878"
+		enc, err = r.handleLegacyAccountRegisterDevice(ctx, b)
+	case legacyUpdatesGetDifferenceTypeID:
+		name = "updates.getDifference#25939651"
+		enc, err = r.handleLegacyUpdatesGetDifference(ctx, b)
 	case legacyLangpackGetLangPackTypeID:
 		name = "langpack.getLangPack#9ab5c58e"
 		enc, err = r.handleLegacyLangpackGetLangPack(ctx, b)

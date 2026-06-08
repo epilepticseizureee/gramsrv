@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 
+	"github.com/gotd/td/bin"
 	"github.com/gotd/td/tg"
 
 	"telesrv/internal/compat/tdesktop"
 	"telesrv/internal/domain"
 )
+
+const legacyAccountRegisterDeviceTypeID uint32 = 0x637ea878
 
 // registerAccount 注册 account.* RPC handler。
 func (r *Router) registerAccount(d *tg.ServerDispatcher) {
@@ -136,6 +139,12 @@ func (r *Router) registerAccount(d *tg.ServerDispatcher) {
 		}
 		return &tg.AccountSavedMusicIDs{IDs: []int64{}}, nil
 	})
+	d.OnAccountGetSavedRingtones(func(ctx context.Context, hash int64) (tg.AccountSavedRingtonesClass, error) {
+		if _, _, err := r.currentUserID(ctx); err != nil {
+			return nil, internalErr()
+		}
+		return &tg.AccountSavedRingtones{Hash: 0, Ringtones: []tg.DocumentClass{}}, nil
+	})
 	d.OnAccountGetAccountTTL(r.onAccountGetAccountTTL)
 	d.OnAccountSetAccountTTL(func(ctx context.Context, ttl tg.AccountDaysTTL) (bool, error) {
 		return true, nil
@@ -202,6 +211,23 @@ func (r *Router) onAccountGetPasswordSettings(ctx context.Context, password tg.I
 		return nil, passwordErr(err)
 	}
 	return tgPasswordSettings(settings), nil
+}
+
+func (r *Router) handleLegacyAccountRegisterDevice(ctx context.Context, b *bin.Buffer) (bin.Encoder, error) {
+	if err := b.ConsumeID(legacyAccountRegisterDeviceTypeID); err != nil {
+		return nil, err
+	}
+	if _, err := b.Int(); err != nil {
+		return nil, err
+	}
+	if _, err := b.String(); err != nil {
+		return nil, err
+	}
+	_, _, err := r.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &tg.BoolTrue{}, nil
 }
 
 func (r *Router) onAccountUpdatePasswordSettings(ctx context.Context, req *tg.AccountUpdatePasswordSettingsRequest) (bool, error) {

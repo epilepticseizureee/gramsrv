@@ -79,6 +79,60 @@ func TestLegacyLangpackGetStrings(t *testing.T) {
 	}
 }
 
+func TestLegacyUpdatesGetDifference(t *testing.T) {
+	r := New(Config{DC: 2, IP: "127.0.0.1", Port: 2398}, Deps{}, zaptest.NewLogger(t), clock.System)
+
+	var flags bin.Fields
+	flags.Set(0)
+	var in bin.Buffer
+	in.PutID(legacyUpdatesGetDifferenceTypeID)
+	if err := flags.Encode(&in); err != nil {
+		t.Fatalf("encode flags: %v", err)
+	}
+	in.PutInt(10)
+	in.PutInt(100)
+	in.PutInt(123456)
+	in.PutInt(0)
+
+	enc, err := r.Dispatch(WithUserID(androidClientContext(), 1000000001), [8]byte{}, 0, &in)
+	if err != nil {
+		t.Fatalf("dispatch legacy updates.getDifference: %v", err)
+	}
+	var out bin.Buffer
+	if err := enc.Encode(&out); err != nil {
+		t.Fatalf("encode response: %v", err)
+	}
+	var diff tg.UpdatesDifferenceEmpty
+	if err := diff.Decode(&out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+}
+
+func TestLegacyAccountRegisterDevice(t *testing.T) {
+	r := New(Config{DC: 2, IP: "127.0.0.1", Port: 2398}, Deps{}, zaptest.NewLogger(t), clock.System)
+
+	var in bin.Buffer
+	in.PutID(legacyAccountRegisterDeviceTypeID)
+	in.PutInt(2)
+	in.PutString("android-fcm-token")
+
+	enc, err := r.Dispatch(WithUserID(androidClientContext(), 1000000001), [8]byte{}, 0, &in)
+	if err != nil {
+		t.Fatalf("dispatch legacy account.registerDevice: %v", err)
+	}
+	var out bin.Buffer
+	if err := enc.Encode(&out); err != nil {
+		t.Fatalf("encode response: %v", err)
+	}
+	ok, err := tg.DecodeBool(&out)
+	if err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if _, ok := ok.(*tg.BoolTrue); !ok {
+		t.Fatalf("legacy account.registerDevice = false, want true")
+	}
+}
+
 func assertLangpackLanguages(t *testing.T, r *Router, ctx context.Context, in *bin.Buffer) {
 	t.Helper()
 	enc, err := r.Dispatch(ctx, [8]byte{}, 0, in)

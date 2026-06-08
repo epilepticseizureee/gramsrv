@@ -4,12 +4,14 @@ import (
 	"context"
 	"time"
 
+	"github.com/gotd/td/bin"
 	"github.com/gotd/td/tg"
 
 	"telesrv/internal/domain"
 )
 
 const updatesTooLongNudgeDelay = 300 * time.Millisecond
+const legacyUpdatesGetDifferenceTypeID uint32 = 0x25939651
 
 // registerUpdates 注册 updates.* RPC handler。
 func (r *Router) registerUpdates(d *tg.ServerDispatcher) {
@@ -69,6 +71,42 @@ func (r *Router) onUpdatesGetDifference(ctx context.Context, req *tg.UpdatesGetD
 	}
 	st.Events = r.enrichUpdateEvents(ctx, userID, st.Events)
 	return tgUpdatesDifference(st), nil
+}
+
+func (r *Router) handleLegacyUpdatesGetDifference(ctx context.Context, b *bin.Buffer) (bin.Encoder, error) {
+	if err := b.ConsumeID(legacyUpdatesGetDifferenceTypeID); err != nil {
+		return nil, err
+	}
+	var flags bin.Fields
+	if err := flags.Decode(b); err != nil {
+		return nil, err
+	}
+	pts, err := b.Int()
+	if err != nil {
+		return nil, err
+	}
+	var ptsTotalLimit int
+	if flags.Has(0) {
+		ptsTotalLimit, err = b.Int()
+		if err != nil {
+			return nil, err
+		}
+	}
+	date, err := b.Int()
+	if err != nil {
+		return nil, err
+	}
+	qts, err := b.Int()
+	if err != nil {
+		return nil, err
+	}
+	return r.onUpdatesGetDifference(ctx, &tg.UpdatesGetDifferenceRequest{
+		Flags:         flags,
+		Pts:           pts,
+		PtsTotalLimit: ptsTotalLimit,
+		Date:          date,
+		Qts:           qts,
+	})
 }
 
 func (r *Router) accountChannelDifferenceNudges(ctx context.Context, userID int64, sinceDate int) []domain.ChannelDifferenceNudge {

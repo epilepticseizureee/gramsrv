@@ -23,6 +23,13 @@ func (r *Router) registerStories(d *tg.ServerDispatcher) {
 	d.OnStoriesGetAlbums(func(ctx context.Context, req *tg.StoriesGetAlbumsRequest) (tg.StoriesAlbumsClass, error) {
 		return tdesktop.StoryAlbums(), nil
 	})
+	d.OnStoriesGetAllReadPeerStories(func(ctx context.Context) (tg.UpdatesClass, error) {
+		return tgEmptyUpdates(int(r.clock.Now().Unix())), nil
+	})
+	d.OnStoriesGetPeerMaxIDs(func(ctx context.Context, id []tg.InputPeerClass) ([]tg.RecentStory, error) {
+		out := make([]tg.RecentStory, len(id))
+		return out, nil
+	})
 	d.OnStoriesSendReaction(r.onStoriesSendReaction)
 }
 

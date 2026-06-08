@@ -16,6 +16,9 @@ func (r *Router) registerHelp(d *tg.ServerDispatcher) {
 	d.OnHelpGetNearestDC(func(ctx context.Context) (*tg.NearestDC, error) {
 		return tdesktop.NearestDC(r.cfg.DC), nil
 	})
+	d.OnHelpGetInviteText(func(ctx context.Context) (*tg.HelpInviteText, error) {
+		return &tg.HelpInviteText{Message: "Join me on Telegram."}, nil
+	})
 	d.OnHelpGetAppConfig(func(ctx context.Context, hash int) (tg.HelpAppConfigClass, error) {
 		if r.deps.Help == nil {
 			return tdesktop.AppConfig(hash), nil

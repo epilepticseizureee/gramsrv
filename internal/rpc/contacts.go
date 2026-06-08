@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gotd/td/tg"
+	"go.uber.org/zap"
 
 	"telesrv/internal/app/contacts"
 	"telesrv/internal/compat/tdesktop"
@@ -42,6 +43,12 @@ func (r *Router) registerContacts(d *tg.ServerDispatcher) {
 		return tdesktop.TopPeers(), nil
 	})
 	d.OnContactsGetBlocked(r.onContactsGetBlocked)
+	d.OnContactsGetBirthdays(func(ctx context.Context) (*tg.ContactsContactBirthdays, error) {
+		if _, _, err := r.currentUserID(ctx); err != nil {
+			return nil, internalErr()
+		}
+		return &tg.ContactsContactBirthdays{Contacts: []tg.ContactBirthday{}, Users: []tg.UserClass{}}, nil
+	})
 	d.OnContactsGetSponsoredPeers(func(ctx context.Context, q string) (tg.ContactsSponsoredPeersClass, error) {
 		if utf8.RuneCountInString(q) > maxContactSearchQLen {
 			return nil, limitInvalidErr()
@@ -250,6 +257,7 @@ func (r *Router) onContactsImportContacts(ctx context.Context, input []tg.InputP
 	}
 	res, err := r.deps.Contacts.ImportContacts(ctx, userID, items)
 	if err != nil {
+		r.log.Warn("contacts.importContacts service failed", append(r.contextLogFields(ctx), zap.Error(err), zap.Int("contacts", len(items)))...)
 		return nil, internalErr()
 	}
 	out := &tg.ContactsImportedContacts{
@@ -267,18 +275,22 @@ func (r *Router) onContactsImportContacts(ctx context.Context, input []tg.InputP
 		peer := domain.Peer{Type: domain.PeerTypeUser, ID: contact.User.ID}
 		settings, err := r.deps.Contacts.GetPeerSettings(ctx, userID, peer)
 		if err != nil {
+			r.log.Warn("contacts.importContacts peer settings failed", append(r.contextLogFields(ctx), zap.Error(err), zap.Int64("peer_user_id", contact.User.ID))...)
 			return nil, internalErr()
 		}
 		if err := r.recordPeerSettings(ctx, userID, peer, settings); err != nil {
+			r.log.Warn("contacts.importContacts record peer settings failed", append(r.contextLogFields(ctx), zap.Error(err), zap.Int64("peer_user_id", contact.User.ID))...)
 			return nil, internalErr()
 		}
 		if contact.Mutual {
 			if err := r.recordAcceptedContactTargetUpdates(ctx, userID, contact.User.ID); err != nil {
+				r.log.Warn("contacts.importContacts record accepted target failed", append(r.contextLogFields(ctx), zap.Error(err), zap.Int64("peer_user_id", contact.User.ID))...)
 				return nil, err
 			}
 		}
 	}
 	if err := r.recordContactsReset(ctx, userID); err != nil {
+		r.log.Warn("contacts.importContacts record contacts reset failed", append(r.contextLogFields(ctx), zap.Error(err), zap.Int("contacts", len(items)))...)
 		return nil, internalErr()
 	}
 	r.pushContactsReset(ctx, userID)
