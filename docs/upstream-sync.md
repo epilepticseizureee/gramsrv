@@ -6,9 +6,9 @@ confirmed source checkpoint.
 
 ## Current Checkpoint
 
-- Last synced source commit: `06b6ae2bb2f90bd7cc1d6a8404a82aff507e6821`
-- Last synced target commit: `b435784`
-- Sync date: 2026-06-16
+- Last synced source commit: `53904e72f7c3b96e6ae5e24196d0e551fa8aebce`
+- Last synced target commit: `294e994`
+- Sync date: 2026-06-19
 - Source path used locally: `D:\work\waikuai\telegram\telesrv`
 - Target path used locally: `D:\work\waikuai\telegram\gramsrv-public`
 
@@ -24,10 +24,12 @@ confirmed source checkpoint.
 | 2026-06-14 | `77b033c8bf8c0a76ff0d7065e2192cbe55d3a3b6` | `75a8861` | synced | Exposed account privacy RPCs and profile/contact photo RPCs, plus `users.getFullUser` privacy and photo projection updates. |
 | 2026-06-16 | `04f4527df32ad5c35720cccc41d27fe51549612f` | `6dc4294` | synced | Completed account authorization flows, including active sessions, authorization reset, 2FA/SRP password settings, recovery paths, and auth error mapping. |
 | 2026-06-16 | `06b6ae2bb2f90bd7cc1d6a8404a82aff507e6821` | `b435784` | synced | Added Android legacy startup compatibility for MTProto exchange replay/acks and allowlisted legacy `langpack.getLanguages` handling. |
+| 2026-06-19 | `3e6321d99607160d0d77bc63977619d5e1d28516` | `82dd299` | synced | Updated account authorization and Android startup/langpack compatibility notes. |
+| 2026-06-19 | `53904e72f7c3b96e6ae5e24196d0e551fa8aebce` | `294e994` | synced | Added Android login startup compatibility for `auth.initPasskeyLogin`, legacy `langpack.getLangPack`/`langpack.getStrings` adapters, and `destroy_session` no-ack handling. |
 
 ## Next Sync
 
-Start the next batch from source commits after `06b6ae2bb2f90bd7cc1d6a8404a82aff507e6821`.
+Start the next batch from source commits after `53904e72f7c3b96e6ae5e24196d0e551fa8aebce`.
 At the time this log was created, newer `telesrv` commits existed after that point and were
 intentionally left out because the latest batch was scoped to the next two commits after
-`77b033c8bf8c0a76ff0d7065e2192cbe55d3a3b6`.
+`06b6ae2bb2f90bd7cc1d6a8404a82aff507e6821`.
