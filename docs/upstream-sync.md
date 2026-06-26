@@ -6,9 +6,9 @@ confirmed source checkpoint.
 
 ## Current Checkpoint
 
-- Last synced source commit: `70978db98c3af3fe72100fa6646780c7a5a13daa`
-- Last synced target commit: `3642e37`
-- Sync date: 2026-06-22
+- Last synced source commit: `937a57b43e4a0a53c09e66c71ce232c7a0735fc9`
+- Last synced target commit: `7ccb8ea`
+- Sync date: 2026-06-26
 - Source path used locally: `D:\work\waikuai\telegram\telesrv`
 - Target path used locally: `D:\work\waikuai\telegram\gramsrv-public`
 
@@ -28,10 +28,12 @@ confirmed source checkpoint.
 | 2026-06-19 | `53904e72f7c3b96e6ae5e24196d0e551fa8aebce` | `294e994` | synced | Added Android login startup compatibility for `auth.initPasskeyLogin`, legacy `langpack.getLangPack`/`langpack.getStrings` adapters, and `destroy_session` no-ack handling. |
 | 2026-06-22 | `d718593156cc7310105007f37645948c17637e0a` | `b4e47c8` | synced | Added Android startup and messaging compatibility stubs/adapters, including legacy `account.registerDevice`, legacy `updates.getDifference`, empty startup surfaces, and related router coverage. |
 | 2026-06-22 | `70978db98c3af3fe72100fa6646780c7a5a13daa` | `3642e37` | synced | Fixed Android channel pinned-message search by carrying pinned state from channel metadata through history/getMessages projections. |
+| 2026-06-26 | `d051bc37bd14076fdd0a83ad41cd507929b20ece` | `091d8f0` | synced | Added MTProto transport quick-ack compatibility for abridged/intermediate/padded-intermediate clients and reused encoded outbound payloads across fanout sends. |
+| 2026-06-26 | `937a57b43e4a0a53c09e66c71ce232c7a0735fc9` | `7ccb8ea` | synced | Autodetect default advertise IP from private non-loopback interfaces and default outbox workers to one for ordered online delivery. |
 
 ## Next Sync
 
-Start the next batch from source commits after `70978db98c3af3fe72100fa6646780c7a5a13daa`.
+Start the next batch from source commits after `937a57b43e4a0a53c09e66c71ce232c7a0735fc9`.
 At the time this log was created, newer `telesrv` commits existed after that point and were
 intentionally left out because the latest batch was scoped to the next two commits after
-`53904e72f7c3b96e6ae5e24196d0e551fa8aebce`.
+`70978db98c3af3fe72100fa6646780c7a5a13daa`.
