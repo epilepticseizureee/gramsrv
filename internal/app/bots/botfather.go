@@ -82,7 +82,7 @@ type botReply struct {
 
 // HandlesBot 报告该收件人是否为内置应答 bot（messages.BotResponder 实现）。
 func (s *Service) HandlesBot(botUserID int64) bool {
-	return s != nil && (botUserID == domain.BotFatherUserID || botUserID == domain.StickersBotUserID || botUserID == domain.ChatBotUserID)
+	return s != nil && (botUserID == domain.BotFatherUserID || botUserID == domain.StickersBotUserID || botUserID == domain.ChatBotUserID || botUserID == domain.SpamBotUserID)
 }
 
 // OnPrivateMessage 处理投递给内置 bot 的私聊消息（messages.BotResponder 实现）。
@@ -103,6 +103,8 @@ func (s *Service) OnPrivateMessage(ctx context.Context, botUserID int64, msg dom
 		go s.respondAsStickers(userID, msg)
 	case domain.ChatBotUserID:
 		go s.respondAsChatBot(userID, msg)
+	case domain.SpamBotUserID:
+		go s.respondAsSpamBot(userID, msg)
 	}
 }
 

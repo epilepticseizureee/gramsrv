@@ -1,0 +1,33 @@
+{
+  "source": "bundled emoji document seed",
+  "exported_at": "2026-07-23T18:10:48Z",
+  "documents": [
+    {
+      "id": 5449449325434266744,
+      "access_hash": -2674406205984148845,
+      "file_reference": "",
+      "date": "2026-07-23T18:10:48Z",
+      "mime_type": "application/x-tgsticker",
+      "size": 3666,
+      "dc_id": 2,
+      "path": "documents/5449449325434266744.tgs",
+      "sha256": "93f236abb999e2daed87ee728c9371c9d0d344bacb6d9fee5cc5a34b468f87f5",
+      "attributes": [
+        {
+          "_": "DocumentAttributeImageSize",
+          "w": 512,
+          "h": 512
+        },
+        {
+          "_": "DocumentAttributeCustomEmoji",
+          "alt": "\u2744\ufe0f"
+        },
+        {
+          "_": "DocumentAttributeFilename",
+          "file_name": "frozen.tgs"
+        }
+      ],
+      "thumbs": []
+    }
+  ]
+}

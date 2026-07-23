@@ -24,6 +24,8 @@ const (
 	seedStickerPreviewStateVersion = "sticker-previews-v2-monotonic"
 	seedAppearanceStateKey         = "files.appearance"
 	seedAppearanceStateVersion     = "appearance-v1"
+	seedEmojisStateKey             = "files.emojis"
+	seedEmojisStateVersion         = "emojis-v1"
 )
 
 func (s *Service) seedStateMatches(ctx context.Context, key, want string) (bool, error) {

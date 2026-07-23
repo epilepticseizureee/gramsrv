@@ -62,6 +62,7 @@ func NewBotStore(users *UserStore) *BotStore {
 	s.byID[domain.BotFatherUserID] = botFatherSeedProfile()
 	s.byID[domain.StickersBotUserID] = stickersSeedProfile()
 	s.byID[domain.ChatBotUserID] = chatBotSeedProfile()
+	s.byID[domain.SpamBotUserID] = spamBotSeedProfile()
 	return s
 }
 
@@ -114,6 +115,14 @@ func chatBotSeedProfile() domain.BotProfile {
 			{Command: "help", Description: "show help"},
 			{Command: "reset", Description: "clear local chat context"},
 		},
+	}
+}
+
+func spamBotSeedProfile() domain.BotProfile {
+	return domain.BotProfile{
+		BotUserID:   domain.SpamBotUserID,
+		OwnerUserID: domain.SpamBotUserID,
+		Description: "The official Spam Info Bot. Helps users with limited accounts regain the full functionality.",
 	}
 }
 

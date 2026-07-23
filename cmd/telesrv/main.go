@@ -498,6 +498,15 @@ func run(logger *zap.Logger) error {
 			zap.Int("blobs", stats.Blobs),
 		)
 	}
+	if stats, err := filesService.SeedEmojis(ctx); err != nil {
+		return fmt.Errorf("seed emojis: %w", err)
+	} else if !stats.Skipped {
+		logger.Info("emoji seed imported",
+			zap.String("source", "default-seed"),
+			zap.Int("documents", stats.Documents),
+			zap.Int("blobs", stats.Blobs),
+		)
+	}
 	if stats, err := filesService.WarmCaches(ctx); err != nil {
 		logger.Warn("媒体资源缓存预热失败", zap.Error(err))
 	} else if stats.StickerSets > 0 || stats.Documents > 0 || stats.Blobs > 0 {
