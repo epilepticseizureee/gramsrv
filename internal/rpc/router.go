@@ -18,6 +18,7 @@ import (
 	"github.com/iamxvbaba/td/tg"
 
 	"github.com/iamxvbaba/td/tlprofile"
+	"telesrv/internal/clientaddr"
 	compatandroid "telesrv/internal/compat/android"
 	"telesrv/internal/domain"
 	"telesrv/internal/links"
@@ -1004,8 +1005,12 @@ func (r *Router) persistAuthKeyClientInfo(ctx context.Context, info clientSessio
 		return
 	}
 	domainInfo := domainAuthKeyClientInfo(info)
+	if ip, ok := clientaddr.RemoteIP(ctx); ok {
+		domainInfo.IP = ip
+	}
 	if domainInfo.Layer == 0 && domainInfo.DeviceModel == "" && domainInfo.Platform == "" &&
-		domainInfo.SystemVersion == "" && domainInfo.APIID == 0 && domainInfo.AppVersion == "" {
+		domainInfo.SystemVersion == "" && domainInfo.APIID == 0 && domainInfo.AppVersion == "" &&
+		domainInfo.IP == "" {
 		return
 	}
 	seen := make(map[[8]byte]struct{}, 2)

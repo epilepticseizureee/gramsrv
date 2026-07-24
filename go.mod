@@ -13,6 +13,7 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/lestrrat-go/jwx/v3 v3.1.1
+	github.com/oschwald/geoip2-golang v1.13.0
 	github.com/pion/datachannel v1.6.2
 	github.com/pion/dtls/v3 v3.1.5
 	github.com/pion/ice/v4 v4.3.0
@@ -65,6 +66,7 @@ require (
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/ogen-go/ogen v1.23.0 // indirect
+	github.com/oschwald/maxminddb-golang v1.13.0 // indirect
 	github.com/pion/mdns/v2 v2.1.0 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/stun/v3 v3.1.6 // indirect

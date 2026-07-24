@@ -21,6 +21,7 @@
 | `TELESRV_LISTEN` | string / `0.0.0.0:2398` | MTProto TCP 监听地址，必须与 patched 客户端可达地址/端口一致。 |
 | `TELESRV_ADVERTISE_IP` | string / `127.0.0.1` | 媒体、通话等回退路径使用的客户端可达 IP；当前 TDesktop 静态 DC patch 不从这里获取 MTProto 地址。 |
 | `TELESRV_RSA_KEY` | path / `data/server_rsa.pem` | MTProto RSA 私钥；缺失时自动生成。属于敏感文件，重启和升级间必须稳定保存。 |
+| `TELESRV_GEOIP_CITY_DB` | path / empty | 可选的 MaxMind City 格式 `.mmdb` 文件路径，用于登录通知和活动会话的位置。默认禁用 GeoIP。仅填写 `.mmdb` 文件名时从 `data/` 加载；包含目录的路径按原样使用。数据库必须包含 City 记录，不接受仅含 ASN 或 Country 数据的数据库。数据库缺失、无效、私有地址或无法解析时回退为 `Unknown`。 |
 | `TELESRV_DC` | int / `2` | 服务端 DC ID，必须与客户端 patch 及媒体/DC 元数据一致。 |
 | `TELESRV_WEBSOCKET_ENABLE` | bool / `true` | 在 MTProto 监听端口启用 MTProto-over-WebSocket 分流。 |
 | `TELESRV_WEBSOCKET_ALLOWED_ORIGINS` | list / `http://localhost:1234,http://127.0.0.1:1234` | 浏览器 WebSocket origin 白名单；`*` 只用于临时调试。 |

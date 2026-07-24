@@ -17,6 +17,7 @@ import (
 	"telesrv/internal/app/auth"
 	"telesrv/internal/app/serverlocales"
 	"telesrv/internal/branding"
+	"telesrv/internal/clientaddr"
 	"telesrv/internal/domain"
 )
 
@@ -294,7 +295,7 @@ func (r *Router) onAuthAcceptLoginToken(ctx context.Context, token []byte) (*tg.
 	r.setAuthUserCache(bound.AuthKeyID, userID, true)
 	r.bindLoginTokenTarget(accept.target, userID)
 	r.pushLoginTokenAccepted(ctx, accept.target)
-	out := tgAuthorization(bound, scannerAuthKeyID, int(now.Unix()))
+	out := r.tgAuthorization(ctx, bound, scannerAuthKeyID, int(now.Unix()))
 	return &out, nil
 }
 
@@ -953,10 +954,17 @@ func (r *Router) tgSignInServiceNotification(ctx context.Context, u domain.User,
 	if ci, ok := ClientInfoFrom(ctx); ok {
 		lang = ci.LangCode
 	}
+	location := ""
+	if ip, ok := clientaddr.RemoteIP(ctx); ok {
+		if resolved, found := r.geoIPLocation(ctx, ip); found {
+			location = resolved.String()
+		}
+	}
 	localized := serverlocales.NewLoginMessage(lang, serverlocales.NewLoginParams{
-		Name:   name,
-		When:   now,
-		Device: client,
+		Name:     name,
+		When:     now,
+		Device:   client,
+		Location: location,
 	})
 	authID := int64(binary.LittleEndian.Uint64(authKeyID[:]))
 	update := &tg.UpdateServiceNotification{

@@ -8,6 +8,7 @@ import (
 	"github.com/iamxvbaba/td/tg"
 
 	"telesrv/internal/domain"
+	"telesrv/internal/geoip"
 	"telesrv/internal/sfu"
 	"telesrv/internal/store"
 	"telesrv/internal/turnsrv"
@@ -913,6 +914,7 @@ type Deps struct {
 	SFU                  sfu.Service
 	TURN                 turnsrv.Service
 	LangPack             LangPackService
+	GeoIP                geoip.Resolver
 	Sessions             SessionBinder
 	Inline               store.InlineRegistryStore
 	Limiter              RateLimiter

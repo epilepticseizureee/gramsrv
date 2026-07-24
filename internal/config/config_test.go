@@ -7,6 +7,26 @@ import (
 	"time"
 )
 
+func TestOptionalDataFilePath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "disabled", path: "", want: ""},
+		{name: "bare filename", path: "GeoLite2-City.mmdb", want: filepath.Join("data", "GeoLite2-City.mmdb")},
+		{name: "relative path", path: filepath.Join("var", "GeoLite2-City.mmdb"), want: filepath.Join("var", "GeoLite2-City.mmdb")},
+		{name: "parent marker", path: "..", want: ".."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := optionalDataFilePath(tt.path); got != tt.want {
+				t.Fatalf("optionalDataFilePath(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadDefaultsAdvertiseIPToLoopback(t *testing.T) {
 	disableDefaultConfigFile(t)
 	t.Setenv("TELESRV_ADVERTISE_IP", "")

@@ -21,6 +21,7 @@ This document describes every setting loaded by `internal/config`. Defaults and 
 | `TELESRV_LISTEN` | string / `0.0.0.0:2398` | MTProto TCP listen address. Must match the address/port reachable by patched clients. |
 | `TELESRV_ADVERTISE_IP` | string / `127.0.0.1` | Client-reachable server IP used by media/call fallbacks. The current static Desktop DC patch does not derive its MTProto endpoint from this value. |
 | `TELESRV_RSA_KEY` | path / `data/server_rsa.pem` | MTProto RSA private key. Generated when missing. Treat the file as a secret and keep it stable across restarts. |
+| `TELESRV_GEOIP_CITY_DB` | path / empty | Optional path to a MaxMind-format City `.mmdb` file used for login notifications and active-session locations. GeoIP is disabled by default. A bare `.mmdb` filename is loaded from `data/`; paths containing directories are used as provided. The database must contain City records; ASN-only and Country-only databases are not accepted. Missing, invalid, private, or unresolved addresses fall back to `Unknown`. |
 | `TELESRV_DC` | int / `2` | Server DC ID. Must match patched client expectations and stored media/DC metadata. |
 | `TELESRV_WEBSOCKET_ENABLE` | bool / `true` | Enables MTProto-over-WebSocket demultiplexing on the MTProto listener. |
 | `TELESRV_WEBSOCKET_ALLOWED_ORIGINS` | list / `http://localhost:1234,http://127.0.0.1:1234` | Browser WebSocket origin allow-list. `*` is for temporary debugging only. |

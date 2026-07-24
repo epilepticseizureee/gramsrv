@@ -26,6 +26,7 @@ import (
 	"github.com/iamxvbaba/td/transport"
 
 	"github.com/iamxvbaba/td/tlprofile"
+	"telesrv/internal/clientaddr"
 	"telesrv/internal/store"
 	"telesrv/internal/store/memory"
 )
@@ -914,7 +915,7 @@ func (s *Server) serveConn(ctx context.Context, raw transport.Conn, remote, loca
 	}()
 
 	// ctx 取消或处理结束时关闭连接，解除 Recv 阻塞。
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(clientaddr.WithRemoteAddr(ctx, remote))
 	defer cancel()
 	go func() {
 		<-ctx.Done()

@@ -565,7 +565,7 @@ func (r *Router) onAccountGetAuthorizations(ctx context.Context) (*tg.AccountAut
 	}
 	out := &tg.AccountAuthorizations{Authorizations: make([]tg.Authorization, 0, len(items))}
 	for _, item := range items {
-		out.Authorizations = append(out.Authorizations, tgAuthorization(item, authKeyID, int(r.clock.Now().Unix())))
+		out.Authorizations = append(out.Authorizations, r.tgAuthorization(ctx, item, authKeyID, int(r.clock.Now().Unix())))
 	}
 	return out, nil
 }
@@ -1873,7 +1873,7 @@ func (r *Router) pushSelfUserChangedUpdate(ctx context.Context, u domain.User) {
 	})
 }
 
-func tgAuthorization(a domain.Authorization, currentAuthKeyID [8]byte, now int) tg.Authorization {
+func (r *Router) tgAuthorization(ctx context.Context, a domain.Authorization, currentAuthKeyID [8]byte, now int) tg.Authorization {
 	created := int(a.CreatedAt.Unix())
 	if created == 0 {
 		created = now
@@ -1881,6 +1881,14 @@ func tgAuthorization(a domain.Authorization, currentAuthKeyID [8]byte, now int) 
 	active := int(a.ActiveAt.Unix())
 	if active == 0 {
 		active = created
+	}
+	country, region := "Unknown", "Unknown"
+	if location, ok := r.geoIPLocation(ctx, a.IP); ok {
+		country = location.Country
+		region = location.City
+		if country == "" {
+			country = "Unknown"
+		}
 	}
 	return tg.Authorization{
 		Current:       a.AuthKeyID == currentAuthKeyID,
@@ -1895,8 +1903,8 @@ func tgAuthorization(a domain.Authorization, currentAuthKeyID [8]byte, now int) 
 		DateCreated:   created,
 		DateActive:    active,
 		IP:            a.IP,
-		Country:       "Unknown",
-		Region:        "Unknown",
+		Country:       country,
+		Region:        region,
 	}
 }
 

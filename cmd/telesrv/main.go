@@ -58,6 +58,7 @@ import (
 	"telesrv/internal/botapi"
 	"telesrv/internal/config"
 	"telesrv/internal/domain"
+	"telesrv/internal/geoip"
 	"telesrv/internal/mtprotoedge"
 	"telesrv/internal/officialgifts"
 	"telesrv/internal/otpdelivery"
@@ -322,6 +323,22 @@ func run(logger *zap.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	var geoIPResolver geoip.Resolver
+	if path := strings.TrimSpace(cfg.GeoIPCityDBPath); path != "" {
+		geoIPDatabase, geoIPErr := geoip.OpenCity(path)
+		if geoIPErr != nil {
+			logger.Warn("GeoIP database unavailable; locations will be Unknown",
+				zap.String("path", path),
+				zap.Error(geoIPErr))
+		} else {
+			defer func() { _ = geoIPDatabase.Close() }()
+			geoIPResolver = geoIPDatabase
+			logger.Info("GeoIP City database loaded",
+				zap.String("path", path),
+				zap.Time("build_time", geoIPDatabase.BuildTime()))
+		}
+	}
 
 	// pprof 调试端点：telesrv 是宿主进程（不在 docker 内，docker stats 看不到它），CPU/内存/
 	// goroutine/锁竞争的定位全靠此端点。早于重负载初始化启动，连 seed/预热阶段也可剖析。
@@ -893,6 +910,7 @@ func run(logger *zap.Logger) error {
 		SFU:                  sfuService,
 		TURN:                 turnService,
 		LangPack:             langPackService,
+		GeoIP:                geoIPResolver,
 		Sessions:             activeSessions,
 		Inline:               inlineRegistryStore,
 		Limiter:              rateLimiter,

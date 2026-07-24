@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,9 @@ type Config struct {
 	AdvertiseIP string
 	// RSAKeyPath 是 server RSA 私钥的 PEM 路径；不存在时自动生成。
 	RSAKeyPath string
+	// GeoIPCityDBPath is the optional MaxMind GeoLite2/GeoIP2 City database.
+	// Empty or unavailable keeps location reporting on the Unknown fallback.
+	GeoIPCityDBPath string
 	// DC 是本 server 的 DC ID。
 	DC int
 	// MTProtoMaxConnections / PerIP 覆盖 raw Accept、codec sniff、握手到认证 session
@@ -469,6 +473,7 @@ func Load() (Config, error) {
 		// 字段与默认值保留，供未来需要显式下发 DC 地址时使用。
 		AdvertiseIP:                         envOr("TELESRV_ADVERTISE_IP", "127.0.0.1"),
 		RSAKeyPath:                          envOr("TELESRV_RSA_KEY", "data/server_rsa.pem"),
+		GeoIPCityDBPath:                     optionalDataFilePath(envAllowEmptyOr("TELESRV_GEOIP_CITY_DB", "")),
 		DC:                                  envIntOr("TELESRV_DC", 2),
 		MTProtoMaxConnections:               envIntOr("TELESRV_MTPROTO_MAX_CONNECTIONS", 200000),
 		MTProtoMaxConnectionsPerIP:          envIntOr("TELESRV_MTPROTO_MAX_CONNECTIONS_PER_IP", 4096),
@@ -682,6 +687,17 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func optionalDataFilePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if filepath.Base(path) == path && path != "." && path != ".." {
+		return filepath.Join("data", path)
+	}
+	return path
 }
 
 func validateTelegramLoginConfig(cfg Config) error {
